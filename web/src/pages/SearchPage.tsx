@@ -13,6 +13,7 @@ export default function SearchPage() {
   const navigate = useNavigate();
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [view, setView] = useState<'list' | 'map'>('list');
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Partial<SearchFilters>>({
@@ -25,10 +26,11 @@ export default function SearchPage() {
 
   useEffect(() => {
     setLoading(true);
-    getProperties(filters).then(data => {
-      setProperties(data);
-      setLoading(false);
-    });
+    setFetchError(null);
+    getProperties(filters)
+      .then(data => setProperties(data))
+      .catch(err => { setFetchError(String(err)); setProperties([]); })
+      .finally(() => setLoading(false));
   }, [filters]);
 
   const toggleStrategy = (s: string) => {
@@ -44,10 +46,10 @@ export default function SearchPage() {
     <div className="flex flex-col h-full page-fade">
       {/* Search bar */}
       <div className="px-6 py-4 border-b border-white/5 flex items-center gap-3 flex-shrink-0">
-        <div className="relative flex-1 max-w-sm">
-          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+        <div className="flex items-center gap-2 flex-1 max-w-sm px-3 py-2 rounded-lg border border-white/10 bg-navy-900/80 focus-within:border-amber-500/60">
+          <Search size={14} className="text-slate-500 flex-shrink-0" />
           <input
-            className="strata-input pl-9"
+            className="flex-1 bg-transparent outline-none text-sm text-slate-200 placeholder-slate-500 font-sans"
             value={filters.query}
             onChange={e => setFilters(f => ({ ...f, query: e.target.value }))}
             placeholder="City, ZIP, neighborhood…"
@@ -60,7 +62,7 @@ export default function SearchPage() {
               key={s}
               onClick={() => toggleStrategy(s)}
               className={clsx(
-                'text-xs font-semibold px-3 py-1.5 rounded-full border transition-all',
+                'text-xs font-semibold px-3 py-1.5 rounded-full border transition-all whitespace-nowrap',
                 filters.strategies?.includes(s)
                   ? 'bg-amber-500/15 text-amber-400 border-amber-500/40'
                   : 'text-slate-500 border-white/10 hover:border-white/20 hover:text-slate-400'
@@ -136,6 +138,12 @@ export default function SearchPage() {
               <button className="btn-ghost text-xs py-1.5 px-3"><Star size={12} /> Watchlist</button>
             </div>
           </div>
+
+          {fetchError && (
+            <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-mono break-all">
+              {fetchError}
+            </div>
+          )}
 
           {loading ? (
             <div className="space-y-3">

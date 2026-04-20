@@ -5,6 +5,8 @@ import IntelligencePage from './pages/IntelligencePage';
 import UnderwritePage from './pages/UnderwritePage';
 import PortfolioPage from './pages/PortfolioPage';
 import CopilotPage from './pages/CopilotPage';
+import LoginPage from './pages/LoginPage';
+import { useAuth } from './contexts/AuthContext';
 
 function Placeholder({ title, sub }: { title: string; sub: string }) {
   return (
@@ -18,6 +20,20 @@ function Placeholder({ title, sub }: { title: string; sub: string }) {
 }
 
 export default function App() {
+  const { session, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen grid-bg flex items-center justify-center">
+        <div className="glass rounded-xl w-48 h-16 animate-pulse" />
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <LoginPage />;
+  }
+
   return (
     <BrowserRouter>
       <div className="flex h-screen overflow-hidden grid-bg">

@@ -1,0 +1,15 @@
+{
+  "name": "strata",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "concurrently --names \"API,WEB\" --prefix-colors \"cyan,green\" \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "backend/.venv/bin/uvicorn backend.main:app --reload --port 8080",
+    "dev:web": "cd web && npm run dev",
+    "install:all": "cd web && npm install",
+    "type-check": "cd web && npx tsc --noEmit"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
