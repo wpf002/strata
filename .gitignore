@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+.expo/
+
+# Environment
+.env.local
+.env
+*.local
+
+# iOS / Android
+mobile/ios/Pods/
+mobile/android/.gradle/
+mobile/android/app/build/
+mobile/android/build/
+*.keystore
+!debug.keystore
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Misc
+.DS_Store
+*.log
+.idea/
+.vscode/

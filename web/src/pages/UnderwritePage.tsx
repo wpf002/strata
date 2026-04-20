@@ -1,0 +1,261 @@
+import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Calculator, Save, Share2, FileText, ChevronDown, CheckCircle, XCircle } from 'lucide-react';
+import { getProperty, calculateUnderwriting } from '../api/client';
+import type { Property, UnderwritingInputs, UnderwritingOutputs } from '../types';
+import { ScoreBadge, RiskBadge, MetricRow, fmt } from '../components/UI';
+import { clsx } from 'clsx';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+
+const STRATEGIES = ['Long-Term Rental', 'BRRRR', 'Fix & Flip', 'Short-Term Rental', 'House Hack', 'Appreciation Play'];
+const LOAN_TYPES = ['30yr Fixed', '15yr Fixed', 'DSCR Loan', 'Interest Only', 'Hard Money'];
+
+export default function UnderwritePage() {
+  const [searchParams] = useSearchParams();
+  const propertyId = searchParams.get('property') || 'p1';
+
+  const [property, setProperty] = useState<Property | null>(null);
+  const [strategy, setStrategy] = useState('Long-Term Rental');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [outputs, setOutputs] = useState<UnderwritingOutputs | null>(null);
+
+  const [inputs, setInputs] = useState<Omit<UnderwritingInputs, 'propertyId'>>({
+    purchasePrice: 342000,
+    downPaymentPct: 25,
+    interestRate: 7.25,
+    loanType: '30yr Fixed',
+    monthlyRent: 2240,
+    vacancyPct: 6,
+    managementPct: 8,
+    maintenancePct: 1.0,
+    insuranceMonthly: 140,
+    capexPct: 5,
+    strategy: 'Long-Term Rental',
+  });
+
+  // Load property
+  useEffect(() => {
+    getProperty(propertyId).then(p => {
+      setProperty(p);
+      setInputs(prev => ({ ...prev, purchasePrice: p.price, monthlyRent: p.rentEstMid }));
+    });
+  }, [propertyId]);
+
+  // Recalculate on every input change
+  const recalculate = useCallback(() => {
+    calculateUnderwriting({ ...inputs, propertyId, strategy }).then(setOutputs);
+  }, [inputs, propertyId, strategy]);
+
+  useEffect(() => { recalculate(); }, [recalculate]);
+
+  const set = (key: keyof typeof inputs) => (val: number | string) =>
+    setInputs(prev => ({ ...prev, [key]: val }));
+
+  if (!property || !outputs) {
+    return <div className="flex items-center justify-center h-full"><div className="text-slate-500 text-sm">Loading…</div></div>;
+  }
+
+  const recColor = {
+    'Strong Buy': 'text-emerald-400 border-emerald-400/40 bg-emerald-400/10',
+    'Buy with Negotiation': 'text-amber-400 border-amber-500/40 bg-amber-500/10',
+    'Marginal': 'text-orange-400 border-orange-400/40 bg-orange-400/10',
+    'Avoid': 'text-red-400 border-red-400/40 bg-red-400/10',
+  }[outputs.recommendation];
+
+  return (
+    <div className="flex flex-col h-full page-fade overflow-hidden">
+      {/* Header */}
+      <div className="px-6 py-3 border-b border-white/5 flex items-center gap-4 flex-shrink-0">
+        <Calculator size={16} className="text-amber-400" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-white truncate">{property.address}</p>
+          <p className="text-xs text-slate-500">STRATA Underwrite · {strategy}</p>
+        </div>
+        <div className="flex items-center gap-1.5 overflow-x-auto">
+          {STRATEGIES.map(s => (
+            <button key={s} onClick={() => setStrategy(s)} className={clsx('text-xs font-medium px-3 py-1.5 rounded-lg border transition-all whitespace-nowrap', strategy === s ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'text-slate-500 border-white/8 hover:border-white/20 hover:text-slate-400')}>{s}</button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 ml-2 flex-shrink-0">
+          <button className="btn-ghost text-xs py-1.5 px-3"><Save size={12} /> Save</button>
+          <button className="btn-ghost text-xs py-1.5 px-3"><Share2 size={12} /> Share</button>
+          <button className="btn-primary text-xs py-2 px-4"><FileText size={12} /> Generate Memo</button>
+        </div>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Assumptions */}
+        <div className="w-[272px] flex-shrink-0 overflow-y-auto border-r border-white/5 px-4 py-4 space-y-4">
+          {/* Purchase */}
+          <div className="glass rounded-xl p-4">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Purchase</p>
+            <SliderRow label="Purchase Price" value={inputs.purchasePrice} display={fmt.currency(inputs.purchasePrice)} min={50000} max={1000000} step={5000} onChange={v => set('purchasePrice')(v)} />
+            <SliderRow label="Down Payment" value={inputs.downPaymentPct} display={`${inputs.downPaymentPct}% · ${fmt.compact(inputs.purchasePrice * inputs.downPaymentPct / 100)}`} min={3.5} max={100} step={0.5} onChange={v => set('downPaymentPct')(v)} />
+            <div className="mb-3">
+              <label className="text-xs text-slate-500 block mb-1.5">Loan Type</label>
+              <select className="strata-input text-xs py-1.5" value={inputs.loanType} onChange={e => set('loanType')(e.target.value)}>
+                {LOAN_TYPES.map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <SliderRow label="Interest Rate" value={inputs.interestRate} display={`${inputs.interestRate.toFixed(3)}%`} min={4} max={14} step={0.125} onChange={v => set('interestRate')(v)} />
+          </div>
+
+          {/* Income */}
+          <div className="glass rounded-xl p-4">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Income</p>
+            <SliderRow label="Monthly Rent" value={inputs.monthlyRent} display={fmt.currency(inputs.monthlyRent)} min={500} max={6000} step={50} onChange={v => set('monthlyRent')(v)} />
+            <p className="text-[10px] text-slate-600 -mt-2 mb-3">STRATA estimate: {fmt.currency(property.rentEstMid)} ({property.rentConfidence} confidence)</p>
+            <SliderRow label="Vacancy Rate" value={inputs.vacancyPct} display={`${inputs.vacancyPct}%`} min={0} max={30} step={1} onChange={v => set('vacancyPct')(v)} />
+          </div>
+
+          {/* Expenses */}
+          <div className="glass rounded-xl p-4">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Expenses</p>
+            <SliderRow label="Property Mgmt" value={inputs.managementPct} display={`${inputs.managementPct}%`} min={0} max={15} step={0.5} onChange={v => set('managementPct')(v)} />
+            <SliderRow label="Maintenance" value={inputs.maintenancePct} display={`${inputs.maintenancePct}% of value/yr`} min={0.25} max={3} step={0.25} onChange={v => set('maintenancePct')(v)} />
+            <SliderRow label="Insurance" value={inputs.insuranceMonthly} display={`${fmt.currency(inputs.insuranceMonthly)}/mo`} min={60} max={400} step={10} onChange={v => set('insuranceMonthly')(v)} />
+            <SliderRow label="CapEx Reserve" value={inputs.capexPct} display={`${inputs.capexPct}% of EGI`} min={0} max={15} step={1} onChange={v => set('capexPct')(v)} />
+          </div>
+
+          {/* Advanced */}
+          <button onClick={() => setShowAdvanced(!showAdvanced)} className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-slate-500 hover:text-slate-400 rounded-lg border border-white/8 hover:border-white/15 transition-all">
+            Advanced Assumptions
+            <ChevronDown size={12} className={clsx('transition-transform', showAdvanced && 'rotate-180')} />
+          </button>
+          {showAdvanced && (
+            <div className="glass rounded-xl p-4 space-y-2">
+              {[['Appreciation Rate/yr', '3.0%'], ['Rent Growth/yr', '2.5%'], ['Turnover Cost', '$1,200'], ['Hold Period', '7 years'], ['Closing Costs', '$8,500']].map(([k, v]) => (
+                <div key={k} className="flex justify-between"><span className="text-xs text-slate-500">{k}</span><span className="text-xs font-mono text-amber-400">{v}</span></div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Results — live */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* Recommendation */}
+          <div className={clsx('rounded-xl p-4 border flex items-center gap-4', recColor)}>
+            <div className="text-2xl font-bold">{outputs.recommendation === 'Strong Buy' || outputs.recommendation === 'Buy with Negotiation' ? '✓' : outputs.recommendation === 'Marginal' ? '!' : '✗'}</div>
+            <div className="flex-1">
+              <p className="font-bold text-base">{outputs.recommendation}</p>
+              <p className="text-sm opacity-80">
+                {outputs.recommendation === 'Strong Buy' && `${fmt.currency(outputs.cashFlow)}/mo cash flow · ${fmt.pct(outputs.cashOnCash)} CoC · DSCR ${outputs.dscr.toFixed(2)}`}
+                {outputs.recommendation === 'Buy with Negotiation' && `Deal works at or below ${fmt.currency(inputs.purchasePrice - 12000)}. Consider negotiating.`}
+                {outputs.recommendation === 'Marginal' && 'Returns below threshold at standard assumptions. Stress-test before committing.'}
+                {outputs.recommendation === 'Avoid' && 'Negative cash flow at any standard financing scenario at this price.'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <ScoreBadge score={property.dealScore} />
+              <RiskBadge score={property.riskScore} />
+            </div>
+          </div>
+
+          {/* Key metrics */}
+          <div className="grid grid-cols-5 gap-3">
+            {[
+              { label: 'Cash Flow', value: `${outputs.cashFlow >= 0 ? '+' : ''}${fmt.currency(outputs.cashFlow)}/mo`, color: outputs.cashFlow >= 0 ? 'text-emerald-400' : 'text-red-400' },
+              { label: 'Cap Rate', value: fmt.pct(outputs.capRate), color: outputs.capRate >= 5 ? 'text-amber-400' : 'text-slate-300' },
+              { label: 'CoC Return', value: fmt.pct(outputs.cashOnCash), color: outputs.cashOnCash >= 6 ? 'text-emerald-400' : 'text-slate-300' },
+              { label: 'DSCR', value: outputs.dscr.toFixed(2), color: outputs.dscr >= 1.25 ? 'text-emerald-400' : 'text-red-400' },
+              { label: 'GRM', value: `${outputs.grm.toFixed(1)}x`, color: 'text-slate-300' },
+            ].map(m => (
+              <div key={m.label} className="glass rounded-xl p-4 text-center">
+                <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">{m.label}</p>
+                <p className={clsx('text-xl font-bold font-mono', m.color)}>{m.value}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            {/* P&L */}
+            <div className="glass rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-white mb-4">Monthly P&L</h3>
+              <MetricRow label="Gross Rent" value={fmt.currency(inputs.monthlyRent)} />
+              <MetricRow label="Vacancy Loss" value={`-${fmt.currency(inputs.monthlyRent * inputs.vacancyPct / 100)}`} />
+              <MetricRow label="Eff. Gross Income" value={fmt.currency(outputs.effectiveGrossIncome)} highlight />
+              <div className="my-2 border-t border-white/5" />
+              <MetricRow label="Operating Expenses" value={`-${fmt.currency(outputs.totalExpenses)}`} />
+              <MetricRow label="NOI" value={fmt.currency(outputs.noi)} />
+              <div className="my-2 border-t border-white/5" />
+              <MetricRow label="Mortgage" value={`-${fmt.currency(outputs.mortgage)}`} />
+              <div className="mt-3 pt-3 border-t border-white/10 flex justify-between items-center">
+                <span className="text-sm font-bold text-white">Net Cash Flow</span>
+                <span className={clsx('text-lg font-bold font-mono', outputs.cashFlow >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                  {outputs.cashFlow >= 0 ? '+' : ''}{fmt.currency(outputs.cashFlow)}
+                </span>
+              </div>
+            </div>
+
+            {/* Scenarios */}
+            <div className="glass rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-white mb-4">Scenario Analysis</h3>
+              <div className="h-36 mb-3">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={outputs.scenarios} barSize={40}>
+                    <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${Math.round(v)}`} />
+                    <Tooltip contentStyle={{ background: '#112240', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }} formatter={(v: any) => [fmt.currency(v), 'Cash Flow']} />
+                    <Bar dataKey="cashFlow" radius={[4, 4, 0, 0]}>
+                      {outputs.scenarios.map((s, i) => <Cell key={i} fill={s.cashFlow >= 200 ? '#34d399' : s.cashFlow >= 0 ? '#C9A84C' : '#f87171'} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              {outputs.scenarios.map(s => (
+                <div key={s.name} className="flex items-center p-2 rounded-lg bg-white/3 mb-1.5">
+                  <span className="text-xs text-slate-400 w-10">{s.name}</span>
+                  <span className={clsx('text-xs font-mono font-semibold flex-1 text-center', s.cashFlow >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                    {s.cashFlow >= 0 ? '+' : ''}{fmt.currency(s.cashFlow)}/mo
+                  </span>
+                  <span className="text-xs font-mono text-amber-400 w-16 text-right">{fmt.pct(s.capRate)} cap</span>
+                  <span className="text-xs font-mono text-slate-400 w-14 text-right">{fmt.pct(s.irr)} IRR</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Additional metrics */}
+          <div className="glass rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-white mb-4">Additional Metrics</h3>
+            <div className="grid grid-cols-4 gap-6">
+              <div><p className="text-xs text-slate-500 mb-1">Cash to Close</p><p className="text-lg font-bold font-mono text-white">{fmt.currency(outputs.totalCashToClose)}</p><p className="text-xs text-slate-500">Down + est. closing</p></div>
+              <div><p className="text-xs text-slate-500 mb-1">Break-Even Occupancy</p><p className={clsx('text-lg font-bold font-mono', outputs.breakEvenOccupancy <= 80 ? 'text-emerald-400' : 'text-amber-400')}>{fmt.pct(outputs.breakEvenOccupancy, 0)}</p><p className="text-xs text-slate-500">Min occupancy needed</p></div>
+              <div><p className="text-xs text-slate-500 mb-1">Break-Even Rent</p><p className="text-lg font-bold font-mono text-white">{fmt.currency(outputs.breakEvenRent)}/mo</p><p className="text-xs text-slate-500">Min rent to cover all costs</p></div>
+              <div><p className="text-xs text-slate-500 mb-1">Expense Ratio</p><p className={clsx('text-lg font-bold font-mono', outputs.expenseRatio <= 45 ? 'text-emerald-400' : 'text-amber-400')}>{fmt.pct(outputs.expenseRatio, 0)}</p><p className="text-xs text-slate-500">Opex / EGI</p></div>
+            </div>
+          </div>
+
+          {/* DSCR check */}
+          <div className={clsx('rounded-xl p-4 border flex items-center gap-3', outputs.dscr >= 1.25 ? 'border-emerald-400/30 bg-emerald-400/5' : 'border-red-400/30 bg-red-400/5')}>
+            {outputs.dscr >= 1.25 ? <CheckCircle size={16} className="text-emerald-400" /> : <XCircle size={16} className="text-red-400" />}
+            <div>
+              <p className={clsx('text-sm font-semibold', outputs.dscr >= 1.25 ? 'text-emerald-400' : 'text-red-400')}>
+                DSCR Financing: {outputs.dscr >= 1.25 ? `Qualifies at ${outputs.dscr.toFixed(2)}` : `Does Not Qualify at ${outputs.dscr.toFixed(2)}`}
+              </p>
+              <p className="text-xs text-slate-500">
+                {outputs.dscr >= 1.25
+                  ? 'This deal qualifies for DSCR loan products. Most lenders require 1.20–1.25 minimum.'
+                  : 'Most DSCR lenders require 1.20–1.25 minimum. Increase rent, reduce price, or increase down payment.'}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SliderRow({ label, value, display, min, max, step, onChange }: {
+  label: string; value: number; display: string; min: number; max: number; step: number; onChange: (v: number) => void;
+}) {
+  return (
+    <div className="mb-4">
+      <label className="text-xs text-slate-500 flex justify-between mb-1.5">
+        <span>{label}</span>
+        <span className="text-amber-400 font-mono">{display}</span>
+      </label>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={e => onChange(+e.target.value)} />
+    </div>
+  );
+}
