@@ -1,21 +1,192 @@
 import { useState, useEffect } from 'react';
-import { Plus, ArrowUpRight, RefreshCw, AlertCircle, DollarSign, Building2, TrendingUp } from 'lucide-react';
-import { getPortfolio } from '../api/client';
+import { Plus, ArrowUpRight, RefreshCw, AlertCircle, DollarSign, Building2, TrendingUp, X, Home } from 'lucide-react';
+import { getPortfolio, createHolding, updateHolding } from '../api/client';
 import type { Portfolio, PortfolioHolding } from '../types';
 import { StatCard, MetricRow, ProgressBar, fmt } from '../components/UI';
 import { clsx } from 'clsx';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
 import { chartDataPortfolioEquity } from '../data/mockData';
 
+interface HoldingFormData {
+  address: string;
+  purchasePrice: string;
+  purchaseDate: string;
+  loanBalance: string;
+  monthlyRent: string;
+  monthlyExpenses: string;
+  notes: string;
+}
+
+const EMPTY_FORM: HoldingFormData = {
+  address: '', purchasePrice: '', purchaseDate: '', loanBalance: '',
+  monthlyRent: '', monthlyExpenses: '', notes: '',
+};
+
+function HoldingModal({
+  initial, onClose, onSave, title,
+}: {
+  initial?: Partial<HoldingFormData>;
+  onClose: () => void;
+  onSave: (data: HoldingFormData) => Promise<void>;
+  title: string;
+}) {
+  const [form, setForm] = useState<HoldingFormData>({ ...EMPTY_FORM, ...initial });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const set = (k: keyof HoldingFormData) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const submit = async () => {
+    if (!form.address.trim()) { setError('Address is required'); return; }
+    setSaving(true);
+    try {
+      await onSave(form);
+      onClose();
+    } catch {
+      setError('Failed to save. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="glass rounded-2xl p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-base font-semibold text-white">{title}</h3>
+          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={16} /></button>
+        </div>
+
+        {error && <p className="text-xs text-red-400 mb-3 p-2 rounded bg-red-400/10 border border-red-400/20">{error}</p>}
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-slate-400 mb-1 block">Address *</label>
+            <input className="strata-input w-full" placeholder="123 Main St, Dallas, TX 75201" value={form.address} onChange={set('address')} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Purchase Price ($)</label>
+              <input className="strata-input w-full" type="number" placeholder="350000" value={form.purchasePrice} onChange={set('purchasePrice')} />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Purchase Date</label>
+              <input className="strata-input w-full" type="date" value={form.purchaseDate} onChange={set('purchaseDate')} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Loan Balance ($)</label>
+              <input className="strata-input w-full" type="number" placeholder="262500" value={form.loanBalance} onChange={set('loanBalance')} />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Monthly Rent ($)</label>
+              <input className="strata-input w-full" type="number" placeholder="2200" value={form.monthlyRent} onChange={set('monthlyRent')} />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-slate-400 mb-1 block">Monthly Expenses ($)</label>
+            <input className="strata-input w-full" type="number" placeholder="1400" value={form.monthlyExpenses} onChange={set('monthlyExpenses')} />
+          </div>
+          <div>
+            <label className="text-xs text-slate-400 mb-1 block">Notes (optional)</label>
+            <textarea className="strata-input w-full resize-none" rows={2} placeholder="Any notes about this property…" value={form.notes} onChange={set('notes')} />
+          </div>
+        </div>
+
+        <div className="flex gap-2 mt-5">
+          <button onClick={onClose} className="btn-ghost flex-1 justify-center text-sm">Cancel</button>
+          <button onClick={submit} disabled={saving} className="btn-primary flex-1 justify-center text-sm">
+            {saving ? 'Saving…' : 'Save Property'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PortfolioPage() {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [activeId, setActiveId] = useState<string>('ph1');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingHolding, setEditingHolding] = useState<PortfolioHolding | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
-  useEffect(() => {
-    getPortfolio().then(p => { setPortfolio(p); setActiveId(p.holdings[0]?.id); });
-  }, []);
+  const load = async () => {
+    const p = await getPortfolio();
+    setPortfolio(p);
+    if (p.holdings.length > 0) setActiveId(p.holdings[0].id);
+  };
 
-  if (!portfolio) return <div className="flex items-center justify-center h-full"><div className="glass rounded-xl w-80 h-40 animate-pulse" /></div>;
+  useEffect(() => { load(); }, []);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleAdd = async (form: HoldingFormData) => {
+    await createHolding({
+      address: form.address,
+      purchase_price: Number(form.purchasePrice) || 0,
+      purchase_date: form.purchaseDate || null,
+      loan_balance: Number(form.loanBalance) || 0,
+      monthly_rent: Number(form.monthlyRent) || 0,
+      monthly_expenses: Number(form.monthlyExpenses) || 0,
+      current_value: Number(form.purchasePrice) || 0,
+      notes: form.notes,
+      recommendation: 'Hold',
+      status: 'Active',
+    });
+    await load();
+    showToast('Property added to portfolio!');
+  };
+
+  const handleUpdate = async (form: HoldingFormData) => {
+    if (!editingHolding) return;
+    await updateHolding(editingHolding.id, {
+      loan_balance: Number(form.loanBalance) || undefined,
+      monthly_rent: Number(form.monthlyRent) || undefined,
+      monthly_expenses: Number(form.monthlyExpenses) || undefined,
+      notes: form.notes || undefined,
+    });
+    await load();
+    showToast('Property updated!');
+  };
+
+  if (!portfolio) {
+    return <div className="flex items-center justify-center h-full"><div className="glass rounded-xl w-80 h-40 animate-pulse" /></div>;
+  }
+
+  // Empty state
+  if (portfolio.holdings.length === 0) {
+    return (
+      <div className="flex flex-col h-full page-fade">
+        {toast && <div className="fixed top-4 right-4 z-50 px-4 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-sm font-medium shadow-lg">{toast}</div>}
+        {showAddModal && <HoldingModal title="Add Property" onClose={() => setShowAddModal(false)} onSave={handleAdd} />}
+        <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">
+          <div>
+            <h1 className="text-lg font-semibold text-white">Portfolio</h1>
+            <p className="text-sm text-slate-500">0 properties</p>
+          </div>
+          <button className="btn-primary text-sm" onClick={() => setShowAddModal(true)}><Plus size={14} /> Add Property</button>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-8">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center">
+            <Home size={28} className="text-amber-400/60" />
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold text-white mb-2">No properties yet</h2>
+            <p className="text-slate-500 text-sm max-w-xs">Add your first property to start tracking equity, cash flow, and performance.</p>
+          </div>
+          <button className="btn-primary" onClick={() => setShowAddModal(true)}>
+            <Plus size={14} /> Add Property
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const active = portfolio.holdings.find(h => h.id === activeId) || portfolio.holdings[0];
   const cashFlowData = portfolio.holdings.map(h => ({
@@ -25,14 +196,36 @@ export default function PortfolioPage() {
 
   return (
     <div className="flex flex-col h-full page-fade overflow-hidden">
+      {toast && <div className="fixed top-4 right-4 z-50 px-4 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-sm font-medium shadow-lg">{toast}</div>}
+
+      {showAddModal && (
+        <HoldingModal title="Add Property" onClose={() => setShowAddModal(false)} onSave={handleAdd} />
+      )}
+      {editingHolding && (
+        <HoldingModal
+          title="Update Actuals"
+          initial={{
+            address: editingHolding.address,
+            purchasePrice: String(editingHolding.purchasePrice),
+            purchaseDate: editingHolding.purchaseDate ?? '',
+            loanBalance: String(editingHolding.loanBalance),
+            monthlyRent: String(editingHolding.monthlyRent),
+            monthlyExpenses: String(editingHolding.monthlyExpenses),
+            notes: '',
+          }}
+          onClose={() => setEditingHolding(null)}
+          onSave={handleUpdate}
+        />
+      )}
+
       <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">
         <div>
           <h1 className="text-lg font-semibold text-white">Portfolio</h1>
           <p className="text-sm text-slate-500">{portfolio.holdings.length} properties · Health Score: <span className="text-amber-400 font-mono font-semibold">{portfolio.healthScore}/100</span></p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="btn-ghost text-sm"><RefreshCw size={14} /> Refresh Values</button>
-          <button className="btn-primary text-sm"><Plus size={14} /> Add Property</button>
+          <button className="btn-ghost text-sm" onClick={load}><RefreshCw size={14} /> Refresh Values</button>
+          <button className="btn-primary text-sm" onClick={() => setShowAddModal(true)}><Plus size={14} /> Add Property</button>
         </div>
       </div>
 
@@ -53,7 +246,7 @@ export default function PortfolioPage() {
             {portfolio.holdings.map(h => (
               <div key={h.id} onClick={() => setActiveId(h.id)} className={clsx('rounded-xl p-4 cursor-pointer transition-all border', activeId === h.id ? 'border-amber-500/40 bg-amber-500/5' : 'border-white/5 glass hover:border-white/15')}>
                 <div className="flex items-start gap-3">
-                  <img src={h.image} alt="" className="w-14 h-14 rounded-lg object-cover flex-shrink-0" />
+                  <img src={h.image} alt="" className="w-14 h-14 rounded-lg object-cover flex-shrink-0" onError={e => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=200&q=60'; }} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-white truncate">{h.address.split(',')[0]}</p>
                     <p className="text-xs text-slate-500 truncate">{h.address.split(',').slice(1).join(',').trim()}</p>
@@ -66,7 +259,7 @@ export default function PortfolioPage() {
                 </div>
               </div>
             ))}
-            <div className="border border-dashed border-white/10 rounded-xl p-4 flex items-center justify-center gap-2 text-slate-600 hover:text-slate-400 hover:border-white/20 cursor-pointer transition-all">
+            <div className="border border-dashed border-white/10 rounded-xl p-4 flex items-center justify-center gap-2 text-slate-600 hover:text-slate-400 hover:border-white/20 cursor-pointer transition-all" onClick={() => setShowAddModal(true)}>
               <Plus size={14} /><span className="text-sm">Add Property</span>
             </div>
           </div>
@@ -154,12 +347,12 @@ export default function PortfolioPage() {
                 <h3 className="text-sm font-semibold text-white mb-3">Quick Actions</h3>
                 <div className="space-y-2">
                   {[
-                    { icon: RefreshCw, label: 'Model a Refinance', color: 'text-amber-400' },
-                    { icon: ArrowUpRight, label: 'Run Disposition Analysis', color: 'text-emerald-400' },
-                    { icon: DollarSign, label: 'Tax & Depreciation View', color: 'text-blue-400' },
-                    { icon: Building2, label: 'Update Actuals', color: 'text-slate-400' },
+                    { icon: RefreshCw, label: 'Model a Refinance', color: 'text-amber-400', onClick: undefined },
+                    { icon: ArrowUpRight, label: 'Run Disposition Analysis', color: 'text-emerald-400', onClick: undefined },
+                    { icon: DollarSign, label: 'Tax & Depreciation View', color: 'text-blue-400', onClick: undefined },
+                    { icon: Building2, label: 'Update Actuals', color: 'text-slate-400', onClick: () => setEditingHolding(active) },
                   ].map(a => (
-                    <button key={a.label} className="w-full btn-ghost text-sm justify-start gap-3">
+                    <button key={a.label} className="w-full btn-ghost text-sm justify-start gap-3" onClick={a.onClick}>
                       <a.icon size={14} className={a.color} /> {a.label}
                     </button>
                   ))}

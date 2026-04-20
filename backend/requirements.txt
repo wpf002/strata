@@ -10,3 +10,5 @@ httpx==0.28.0
 PyJWT==2.10.1
 greenlet==3.1.1
 python-multipart==0.0.20
+apscheduler==3.10.4
+anthropic>=0.40.0

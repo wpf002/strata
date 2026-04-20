@@ -41,8 +41,10 @@ async def create_saved_search(
 ):
     search = SavedSearch(
         user_id=current_user.id,
+        name=body.name,
         criteria=body.criteria,
         alert_enabled=body.alert_enabled,
+        last_notified_property_ids=[],
     )
     db.add(search)
     await db.flush()

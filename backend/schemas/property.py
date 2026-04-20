@@ -43,6 +43,9 @@ class PropertyResponse(CamelModel):
     image: str | None = None
     lat: float | None = None
     lng: float | None = None
+    flood_risk: dict | None = None
+    nearby_schools: list[dict] | None = None
+    rent_estimate: dict | None = None
 
 
 class ValuationResponse(CamelModel):
@@ -67,3 +70,4 @@ class RiskResponse(CamelModel):
     composite_score: float
     dimensions: list[RiskDimension]
     flags: list[RiskFlag]
+    flood_risk: dict | None = None

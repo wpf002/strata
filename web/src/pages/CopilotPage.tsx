@@ -1,6 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bot, Send, Sparkles } from 'lucide-react';
+import { useSearchParams, Link } from 'react-router-dom';
+import { Bot, Send, Sparkles, ExternalLink, AlertCircle } from 'lucide-react';
 import { clsx } from 'clsx';
+import { mockProperties } from '../data/mockData';
+
+const BASE_URL = import.meta.env.VITE_API_URL ?? '';
 
 type Message = { role: 'user' | 'assistant'; content: string };
 
@@ -13,38 +17,98 @@ const SUGGESTIONS = [
   'Which of my portfolio properties should I refinance?',
 ];
 
-const CANNED: Record<string, string> = {
-  default: `Based on your strategy settings (LTR, Dallas market, $200K–$500K), I'm seeing strong fundamentals in your target area right now.
-
-**Current market conditions:** Dallas is in a Balanced regime with 2.3 months of inventory. The cap rate median is 5.4% — properties scoring 70+ on STRATA's Deal Score are outperforming that benchmark.
-
-**Top opportunities right now:**
-- 4521 Oak Creek Drive ($342K) — Deal Score 81, projected cap rate 6.4%, positive cash flow at standard financing. Priced near fair value.
-- 517 Elmwood Avenue ($378K) — Deal Score 77, risk score only 22, 6.1% cap rate. Only 6 days on market — move quickly.
-
-**Recommendation:** Focus on Oak Creek and Elmwood. Both meet your return thresholds. Oak Creek has the stronger deal score; Elmwood has meaningfully lower risk. If you can only move on one, Oak Creek at or below $335K is the stronger long-term hold.
-
-*Confidence: Medium-High. Based on current MLS data, 6 comparable sales, and your configured LTR strategy settings. Verify rent estimates with current active listings before committing capital.*`,
-};
-
 export default function CopilotPage() {
+  const [searchParams] = useSearchParams();
+  const propertyId = searchParams.get('property');
+  const contextProperty = propertyId ? mockProperties.find(p => p.id === propertyId) ?? null : null;
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamError, setStreamError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isTyping]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isStreaming]);
 
   const send = async (text: string) => {
-    if (!text.trim() || isTyping) return;
-    setMessages(prev => [...prev, { role: 'user', content: text }]);
+    if (!text.trim() || isStreaming) return;
+    setStreamError(null);
+
+    const userMsg: Message = { role: 'user', content: text };
+    const allMessages = [...messages, userMsg];
+    setMessages(allMessages);
     setInput('');
-    setIsTyping(true);
-    await new Promise(r => setTimeout(r, 1100));
-    const response = CANNED[text] || CANNED.default;
-    setMessages(prev => [...prev, { role: 'assistant', content: response }]);
-    setIsTyping(false);
+    setIsStreaming(true);
+
+    const assistantMsg: Message = { role: 'assistant', content: '' };
+    setMessages(prev => [...prev, assistantMsg]);
+
+    abortRef.current = new AbortController();
+
+    try {
+      const res = await fetch(`${BASE_URL}/copilot/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: allMessages,
+          property_id: propertyId ?? undefined,
+        }),
+        signal: abortRef.current.signal,
+      });
+
+      if (!res.ok || !res.body) {
+        throw new Error(`API error ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const payload = line.slice(6).trim();
+          if (payload === '[DONE]') break;
+          try {
+            const { text: chunk } = JSON.parse(payload);
+            setMessages(prev => {
+              const updated = [...prev];
+              const last = updated[updated.length - 1];
+              if (last.role === 'assistant') {
+                updated[updated.length - 1] = { ...last, content: last.content + chunk };
+              }
+              return updated;
+            });
+          } catch {
+            // ignore malformed SSE
+          }
+        }
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
+      setStreamError('Failed to reach STRATA Copilot. Check that the backend is running.');
+      setMessages(prev => prev.slice(0, -1));
+    } finally {
+      setIsStreaming(false);
+    }
   };
+
+  const renderContent = (content: string) => ({
+    __html: content
+      .replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em class="text-slate-400 text-xs">$1</em>')
+      .replace(/^- (.*?)$/gm, '<div class="flex gap-2 my-1"><span class="text-amber-400 flex-shrink-0">·</span><span class="text-slate-300">$1</span></div>')
+      .replace(/\n\n/g, '<div class="h-2"></div>')
+      .replace(/\n/g, '<br/>'),
+  });
 
   return (
     <div className="flex flex-col h-full page-fade">
@@ -58,12 +122,32 @@ export default function CopilotPage() {
           <p className="text-xs text-slate-500">AI-powered real estate intelligence · All outputs include confidence labels</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-slate-500">50 queries remaining</span>
-          <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden">
-            <div className="h-full w-3/4 bg-amber-500 rounded-full" />
-          </div>
+          <span className="text-xs text-slate-500">Powered by Claude</span>
         </div>
       </div>
+
+      {/* Property context banner */}
+      {contextProperty && (
+        <div className="px-6 py-2.5 border-b border-amber-500/20 bg-amber-500/5 flex items-center gap-3 flex-shrink-0">
+          <div className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+          <span className="text-xs text-amber-400 font-semibold">Analyzing:</span>
+          <span className="text-xs text-slate-300">{contextProperty.address}, {contextProperty.city}</span>
+          <Link
+            to={`/intelligence/${contextProperty.id}`}
+            className="ml-auto flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 transition-colors"
+          >
+            View Intelligence <ExternalLink size={11} />
+          </Link>
+        </div>
+      )}
+
+      {/* Error */}
+      {streamError && (
+        <div className="px-6 py-2 border-b border-red-500/20 bg-red-500/5 flex items-center gap-2 flex-shrink-0">
+          <AlertCircle size={13} className="text-red-400" />
+          <span className="text-xs text-red-400">{streamError}</span>
+        </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-6">
@@ -90,29 +174,16 @@ export default function CopilotPage() {
                   {m.role === 'user' ? 'W' : <Bot size={14} />}
                 </div>
                 <div className={clsx('rounded-xl px-4 py-3 max-w-[85%]', m.role === 'user' ? 'glass-dark' : 'glass')}>
-                  <div className="text-sm text-slate-200 leading-relaxed"
-                    dangerouslySetInnerHTML={{
-                      __html: m.content
-                        .replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>')
-                        .replace(/\*(.*?)\*/g, '<em class="text-slate-400 text-xs">$1</em>')
-                        .replace(/- (.*?)(\n|$)/g, '<div class="flex gap-2 my-1"><span class="text-amber-400 flex-shrink-0">·</span><span class="text-slate-300">$1</span></div>')
-                        .replace(/\n\n/g, '<div class="h-2"></div>')
-                        .replace(/\n/g, '<br/>')
-                    }}
-                  />
+                  {m.content ? (
+                    <div className="text-sm text-slate-200 leading-relaxed" dangerouslySetInnerHTML={renderContent(m.content)} />
+                  ) : (
+                    <div className="flex gap-1 items-center h-5">
+                      {[0,1,2].map(j => <div key={j} className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: `${j * 0.15}s` }} />)}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
-            {isTyping && (
-              <div className="flex gap-3">
-                <div className="w-7 h-7 rounded-full bg-amber-500/15 flex items-center justify-center mt-1"><Bot size={14} className="text-amber-400" /></div>
-                <div className="glass rounded-xl px-4 py-3">
-                  <div className="flex gap-1 items-center h-5">
-                    {[0,1,2].map(i => <div key={i} className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}
-                  </div>
-                </div>
-              </div>
-            )}
             <div ref={bottomRef} />
           </div>
         )}
@@ -127,9 +198,9 @@ export default function CopilotPage() {
               placeholder="Ask about any property, deal, or market…"
               value={input}
               onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && send(input)}
+              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send(input)}
             />
-            <button onClick={() => send(input)} disabled={!input.trim() || isTyping} className="absolute right-3 w-7 h-7 rounded-lg bg-amber-500 flex items-center justify-center disabled:opacity-30 hover:bg-amber-400 transition-all">
+            <button onClick={() => send(input)} disabled={!input.trim() || isStreaming} className="absolute right-3 w-7 h-7 rounded-lg bg-amber-500 flex items-center justify-center disabled:opacity-30 hover:bg-amber-400 transition-all">
               <Send size={13} className="text-slate-900" />
             </button>
           </div>

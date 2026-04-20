@@ -5,15 +5,24 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .routers import properties, underwriting, portfolio, market, users, search
+from .routers import copilot
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: nothing blocking here — migrations run via Alembic CLI
+    # Start APScheduler for background jobs
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from .background.search_alerts import run_saved_search_alerts
+
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(run_saved_search_alerts, "interval", hours=6, id="search_alerts")
+    scheduler.start()
+
     yield
-    # Shutdown: dispose connection pool
+
+    scheduler.shutdown(wait=False)
     from .database import engine
     await engine.dispose()
 
@@ -43,6 +52,7 @@ app.include_router(underwriting.router)
 app.include_router(portfolio.router)
 app.include_router(market.router)
 app.include_router(search.router)
+app.include_router(copilot.router)
 
 
 @app.get("/health")

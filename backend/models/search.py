@@ -15,9 +15,11 @@ class SavedSearch(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    name: Mapped[str | None] = mapped_column(String(255))
     criteria: Mapped[dict] = mapped_column(JSONB, default=dict)
     alert_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_notified_property_ids: Mapped[list | None] = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

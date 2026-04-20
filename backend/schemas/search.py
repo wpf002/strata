@@ -3,12 +3,14 @@ from . import CamelModel
 
 
 class SavedSearchCreate(CamelModel):
+    name: str
     criteria: dict
     alert_enabled: bool = False
 
 
 class SavedSearchResponse(CamelModel):
     id: str
+    name: str | None = None
     criteria: dict
     alert_enabled: bool
     last_run_at: datetime | None

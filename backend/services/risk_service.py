@@ -4,11 +4,75 @@ Returns a composite 0–100 score and per-dimension breakdown.
 """
 from datetime import datetime
 
+import httpx
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.property import Property
 from ..schemas.property import RiskResponse, RiskDimension, RiskFlag
+
+_FEMA_URL = (
+    "https://hazards.fema.gov/gis/nfhl/rest/services/public/NFHL/MapServer/28/query"
+)
+
+_ZONE_MAP = {
+    "AE": ("High Risk", "1% annual flood chance"),
+    "A": ("High Risk", "1% annual flood chance"),
+    "AO": ("High Risk", "1% annual flood chance"),
+    "AH": ("High Risk", "1% annual flood chance"),
+    "A99": ("High Risk", "1% annual flood chance"),
+    "VE": ("Very High Risk", "Coastal high risk"),
+    "V": ("Very High Risk", "Coastal high risk"),
+    "X": ("Low Risk", "Minimal flood risk"),  # unshaded default; shaded handled below
+    "D": ("Undetermined", "Flood risk not studied"),
+}
+
+_UNKNOWN_FLOOD = {
+    "zone": "Unknown",
+    "in_sfha": False,
+    "risk_label": "Unknown",
+    "description": "Flood data unavailable for this location",
+}
+
+
+async def get_flood_zone(lat: float, lon: float) -> dict:
+    try:
+        params = {
+            "geometry": f"{lon},{lat}",
+            "geometryType": "esriGeometryPoint",
+            "inSR": "4326",
+            "spatialRel": "esriSpatialRelIntersects",
+            "outFields": "FLD_ZONE,ZONE_SUBTY,SFHA_TF",
+            "f": "json",
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(_FEMA_URL, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+
+        features = data.get("features", [])
+        if not features:
+            return _UNKNOWN_FLOOD
+
+        attrs = features[0].get("attributes", {})
+        zone = attrs.get("FLD_ZONE", "Unknown")
+        subtype = attrs.get("ZONE_SUBTY", "") or ""
+        in_sfha = attrs.get("SFHA_TF", "F") == "T"
+
+        # X shaded = moderate risk
+        if zone == "X" and "SHADED" in subtype.upper():
+            return {
+                "zone": zone,
+                "in_sfha": in_sfha,
+                "risk_label": "Moderate Risk",
+                "description": "0.2% annual flood chance",
+            }
+
+        risk_label, description = _ZONE_MAP.get(zone, ("Unknown", "Flood data unavailable"))
+        return {"zone": zone, "in_sfha": in_sfha, "risk_label": risk_label, "description": description}
+
+    except Exception:
+        return _UNKNOWN_FLOOD
 
 
 async def get_risk(db: AsyncSession, subject: Property) -> RiskResponse:

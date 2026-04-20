@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     attom_api_key: str = ""
     rentcast_api_key: str = ""
     sendgrid_api_key: str = ""
+    sendgrid_from_email: str = "alerts@strata.app"
+    anthropic_api_key: str = ""
+    rapidapi_key: str = ""
 
     # App
     environment: str = "development"

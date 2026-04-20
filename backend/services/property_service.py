@@ -162,7 +162,15 @@ async def search_properties(
 ) -> list[PropertyResponse]:
     settings = get_settings()
 
-    # Use live ATTOM data if key is present, otherwise serve mock dataset
+    # Use RapidAPI if key is present, then ATTOM, then mock
+    if settings.rapidapi_key:
+        live = await _search_rapidapi(
+            query, min_deal_score, max_price, min_cap_rate, property_types, sort_by,
+            settings.rapidapi_key,
+        )
+        if live:
+            return live
+
     if settings.attom_api_key:
         return await _search_attom(
             query, min_deal_score, max_price, min_cap_rate, property_types, sort_by
@@ -282,3 +290,177 @@ async def _search_attom(
 
 async def _fetch_attom_property(property_id: str) -> PropertyResponse | None:
     return None
+
+
+async def _search_rapidapi(
+    query: str | None,
+    min_deal_score: float | None,
+    max_price: float | None,
+    min_cap_rate: float | None,
+    property_types: list[str] | None,
+    sort_by: str | None,
+    api_key: str,
+) -> list[PropertyResponse]:
+    parts = [s.strip() for s in (query or "Dallas, TX").replace(",", " ").split() if s.strip()]
+    city = parts[0] if parts else "Dallas"
+    state = parts[1] if len(parts) > 1 else "TX"
+    zip_code = next((p for p in parts if p.isdigit() and len(p) == 5), None)
+
+    url = "https://realty-in-us.p.rapidapi.com/properties/v3/list"
+    params: dict = {
+        "city": city,
+        "state_code": state,
+        "limit": 20,
+        "offset": 0,
+        "sort": "relevance",
+    }
+    if zip_code:
+        params["postal_code"] = zip_code
+
+    headers = {
+        "X-RapidAPI-Key": api_key,
+        "X-RapidAPI-Host": "realty-in-us.p.rapidapi.com",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url, params=params, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        return []
+
+    results_raw = (data.get("data") or {}).get("home_search", {}).get("results") or []
+    properties: list[PropertyResponse] = []
+
+    for item in results_raw:
+        try:
+            loc = item.get("location", {})
+            addr = loc.get("address", {})
+            desc = item.get("description", {})
+            coord = addr.get("coordinate", {})
+
+            price = item.get("list_price") or 0
+            beds = desc.get("beds") or 0
+            baths = float(desc.get("baths") or 0)
+            sqft = desc.get("sqft") or 1
+            year_built = desc.get("year_built")
+
+            ext_id = item.get("property_id") or str(uuid.uuid4())
+            address = addr.get("line") or "Unknown Address"
+            city_val = addr.get("city") or city
+            state_val = addr.get("state_code") or state
+            zip_val = addr.get("postal_code") or ""
+            lat = float(coord.get("lat") or 0) or None
+            lng = float(coord.get("lon") or 0) or None
+            image_href = (item.get("primary_photo") or {}).get("href")
+            status = item.get("status") or "Active"
+            listed_at = item.get("list_date") or ""
+
+            # Basic financial estimates
+            rent_mid = round(sqft * 1.2 + beds * 80 + baths * 60)
+            rent_low = round(rent_mid * 0.88)
+            rent_high = round(rent_mid * 1.12)
+            noi_mo = rent_mid * 0.5  # ~50% expense ratio
+            cap_rate = round((noi_mo * 12 / price * 100) if price > 0 else 0, 1)
+            deal_score = _compute_deal_score(price, cap_rate, sqft, beds)
+            risk_score = _compute_risk_score(year_built, price, sqft)
+            fair_value_low = round(price * 0.93)
+            fair_value_high = round(price * 1.07)
+            price_vs_fv = round(((price - (fair_value_low + fair_value_high) / 2) / ((fair_value_low + fair_value_high) / 2)) * 100, 1)
+            down = price * 0.25
+            loan = price - down
+            mr = 7.25 / 100 / 12
+            mtg = loan * (mr * (1 + mr) ** 360) / ((1 + mr) ** 360 - 1)
+            egi = rent_mid * 0.94
+            opex = egi * 0.08 + price * 0.022 / 12 + 140 + price * 0.01 / 12
+            cash_flow = round(egi - opex - mtg)
+            coc = round(((cash_flow * 12) / (down + 8500)) * 100, 1)
+
+            prop = PropertyResponse(
+                id=ext_id,
+                address=address,
+                city=city_val,
+                state=state_val,
+                zip=zip_val,
+                price=price,
+                beds=beds,
+                baths=baths,
+                sqft=sqft,
+                year_built=year_built,
+                type=desc.get("type") or "Single Family",
+                status=status,
+                days_on_market=item.get("days_on_market") or 0,
+                deal_score=deal_score,
+                risk_score=risk_score,
+                cap_rate=cap_rate,
+                cash_on_cash=coc,
+                cash_flow=cash_flow,
+                fair_value_low=fair_value_low,
+                fair_value_high=fair_value_high,
+                rent_est_low=rent_low,
+                rent_est_mid=rent_mid,
+                rent_est_high=rent_high,
+                rent_confidence="Low",
+                valuation_confidence="Low",
+                price_vs_fair_value=price_vs_fv,
+                strategy_fit=round(deal_score * 0.9),
+                neighborhood=None,
+                neighborhood_score=None,
+                market_regime="Balanced",
+                risk_flags=[],
+                image=image_href,
+                lat=lat,
+                lng=lng,
+            )
+            properties.append(prop)
+        except Exception:
+            continue
+
+    # Filter
+    if min_deal_score is not None:
+        properties = [p for p in properties if p.deal_score >= min_deal_score]
+    if max_price is not None:
+        properties = [p for p in properties if p.price <= max_price]
+    if min_cap_rate is not None:
+        properties = [p for p in properties if p.cap_rate >= min_cap_rate]
+
+    # Sort
+    sort_map = {
+        "Deal Score": (lambda p: p.deal_score, True),
+        "Price": (lambda p: p.price, False),
+        "Cap Rate": (lambda p: p.cap_rate, True),
+        "Cash Flow": (lambda p: p.cash_flow, True),
+        "Days on Market": (lambda p: p.days_on_market, False),
+    }
+    if sort_by and sort_by in sort_map:
+        key_fn, reverse = sort_map[sort_by]
+        properties.sort(key=key_fn, reverse=reverse)
+
+    return properties
+
+
+def _compute_deal_score(price: float, cap_rate: float, sqft: int, beds: int) -> float:
+    score = 50.0
+    score += min(30, (cap_rate - 4) * 10) if cap_rate >= 4 else (cap_rate - 4) * 10
+    price_per_sqft = price / sqft if sqft > 0 else 300
+    if price_per_sqft < 150:
+        score += 15
+    elif price_per_sqft < 200:
+        score += 8
+    elif price_per_sqft > 350:
+        score -= 10
+    if beds >= 3:
+        score += 5
+    return round(max(0, min(100, score)), 1)
+
+
+def _compute_risk_score(year_built: int | None, price: float, sqft: int) -> float:
+    score = 30.0
+    if year_built:
+        age = datetime.now(timezone.utc).year - year_built
+        score += min(40, age * 0.8)
+    price_per_sqft = price / sqft if sqft > 0 else 200
+    if price_per_sqft > 400:
+        score += 15
+    return round(max(0, min(100, score)), 1)

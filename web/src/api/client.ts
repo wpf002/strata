@@ -2,6 +2,29 @@ import type { Property, UnderwritingInputs, UnderwritingOutputs, Portfolio, Mark
 import { mockProperties, mockPortfolioHoldings, mockMarketData } from '../data/mockData';
 import { supabase } from '../lib/supabase';
 
+export type ValuationData = {
+  propertyId: string;
+  fairValueLow: number;
+  fairValueHigh: number;
+  fairValueMid: number;
+  confidence: 'High' | 'Medium' | 'Low';
+  compCount: number;
+  comps: Array<{ address: string; sqft: number; listPrice: number; adjustedValue: number; daysAgo?: number }>;
+  adjustmentPerSqft: number;
+};
+
+export type RiskDimension = { name: string; score: number; description: string };
+export type RiskData = {
+  propertyId: string;
+  compositeScore: number;
+  dimensions: RiskDimension[];
+  flags: Array<{ label: string; severity: 'High' | 'Medium' | 'Low' }>;
+  floodRisk?: { zone: string; inSfha: boolean; riskLabel: string; description: string } | null;
+};
+
+export type SavedSearch = { id: string; name: string | null; criteria: object; alertEnabled: boolean; createdAt: string };
+export type Watchlist = { id: string; name: string; propertyIds: string[]; createdAt: string };
+
 const BASE_URL = import.meta.env.VITE_API_URL ?? '';
 const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false';
 
@@ -24,6 +47,12 @@ async function post<T>(path: string, body: unknown, auth = false): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
   return res.json();
+}
+
+async function del(path: string, auth = false): Promise<void> {
+  const headers = auth ? await authHeaders() : {};
+  const res = await fetch(`${BASE_URL}${path}`, { method: 'DELETE', headers });
+  if (!res.ok && res.status !== 204) throw new Error(`API error ${res.status}`);
 }
 
 // ── Properties ──────────────────────────────────────────────────────────────
@@ -122,6 +151,84 @@ export async function getPortfolio(): Promise<Portfolio> {
       healthScore: 68,
     };
   }
+}
+
+// ── Valuation & Risk ─────────────────────────────────────────────────────────
+export async function getValuation(id: string): Promise<ValuationData> {
+  const raw = await get<any>(`/properties/${id}/valuation`);
+  return {
+    propertyId: raw.propertyId,
+    fairValueLow: raw.fairValueLow,
+    fairValueHigh: raw.fairValueHigh,
+    fairValueMid: raw.fairValueMid,
+    confidence: raw.confidence,
+    compCount: raw.compCount,
+    comps: (raw.comps ?? []).map((c: any) => ({
+      address: c.address ?? c.id ?? 'Unknown',
+      sqft: c.sqft ?? 0,
+      listPrice: c.list_price ?? c.listPrice ?? 0,
+      adjustedValue: c.adjusted_value ?? c.adjustedValue ?? 0,
+      daysAgo: c.days_ago ?? c.daysAgo,
+    })),
+    adjustmentPerSqft: raw.adjustmentPerSqft ?? 60,
+  };
+}
+
+export async function getRisk(id: string): Promise<RiskData> {
+  const raw = await get<any>(`/properties/${id}/risk`);
+  return {
+    propertyId: raw.propertyId,
+    compositeScore: raw.compositeScore,
+    dimensions: raw.dimensions ?? [],
+    flags: raw.flags ?? [],
+    floodRisk: raw.floodRisk ?? null,
+  };
+}
+
+// ── Saved Searches ────────────────────────────────────────────────────────────
+export async function getSavedSearches(): Promise<SavedSearch[]> {
+  return get<SavedSearch[]>('/saved-searches', true);
+}
+
+export async function createSavedSearch(name: string, criteria: object): Promise<SavedSearch> {
+  return post<SavedSearch>('/saved-searches', { name, criteria, alertEnabled: false }, true);
+}
+
+export async function deleteSavedSearch(id: string): Promise<void> {
+  return del(`/saved-searches/${id}`, true);
+}
+
+// ── Watchlists ────────────────────────────────────────────────────────────────
+export async function getWatchlists(): Promise<Watchlist[]> {
+  return get<Watchlist[]>('/watchlists', true);
+}
+
+export async function createWatchlist(name: string): Promise<Watchlist> {
+  return post<Watchlist>('/watchlists', { name }, true);
+}
+
+export async function addToWatchlist(watchlistId: string, propertyId: string): Promise<Watchlist> {
+  return post<Watchlist>(`/watchlists/${watchlistId}/properties/${propertyId}`, {}, true);
+}
+
+export async function removeFromWatchlist(watchlistId: string, propertyId: string): Promise<void> {
+  return del(`/watchlists/${watchlistId}/properties/${propertyId}`, true);
+}
+
+// ── Portfolio CRUD ────────────────────────────────────────────────────────────
+export async function createHolding(data: object): Promise<any> {
+  return post<any>('/portfolio/holdings', data, true);
+}
+
+export async function updateHolding(id: string, data: object): Promise<any> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(await authHeaders()) };
+  const res = await fetch(`${BASE_URL}/portfolio/holdings/${id}`, { method: 'PUT', headers, body: JSON.stringify(data) });
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}
+
+export async function deleteHolding(id: string): Promise<void> {
+  return del(`/portfolio/holdings/${id}`, true);
 }
 
 // ── Market ───────────────────────────────────────────────────────────────────

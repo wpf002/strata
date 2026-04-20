@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Calculator, Star, Share2, Bell, ChevronRight, MapPin, Info, ThumbsUp, ThumbsDown, Clock, Home, TrendingUp, Shield, AlertTriangle, Landmark } from 'lucide-react';
-import { getProperty } from '../api/client';
+import { ArrowLeft, Calculator, Star, Share2, Bell, ChevronRight, MapPin, Info, ThumbsUp, ThumbsDown, Clock, Home, TrendingUp, Shield, AlertTriangle, Landmark, Bot, Droplets, GraduationCap } from 'lucide-react';
+import { getProperty, getValuation, getRisk } from '../api/client';
 import type { Property } from '../types';
+import type { ValuationData, RiskData } from '../api/client';
 import { ScoreBadge, RiskBadge, RegimeBadge, FlagBadge, ConfidencePill, MetricRow, StatCard, ProgressBar, fmt } from '../components/UI';
 import { clsx } from 'clsx';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
@@ -15,17 +16,81 @@ const priceHistory = [
   { date: 'Jan 24', price: 329000 }, { date: 'Apr 24', price: 342000 },
 ];
 
+function Skeleton({ className }: { className?: string }) {
+  return <div className={clsx('glass rounded-xl animate-pulse', className)} />;
+}
+
 export default function IntelligencePage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [property, setProperty] = useState<Property | null>(null);
+  const [valuation, setValuation] = useState<ValuationData | null>(null);
+  const [risk, setRisk] = useState<RiskData | null>(null);
   const [activeTab, setActiveTab] = useState('Overview');
+  const [loadingProp, setLoadingProp] = useState(true);
+  const [loadingVal, setLoadingVal] = useState(false);
+  const [loadingRisk, setLoadingRisk] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const propId = id || 'p1';
 
   useEffect(() => {
-    getProperty(id || 'p1').then(setProperty);
-  }, [id]);
+    setLoadingProp(true);
+    getProperty(propId)
+      .then(setProperty)
+      .catch((err: Error) => {
+        if (err.message.includes('404')) {
+          setToast('Property not found — redirecting to search…');
+          setTimeout(() => navigate('/'), 2000);
+        }
+      })
+      .finally(() => setLoadingProp(false));
+  }, [propId, navigate]);
 
-  if (!property) return <div className="flex items-center justify-center h-full"><div className="glass rounded-xl w-96 h-48 animate-pulse" /></div>;
+  useEffect(() => {
+    if (!property) return;
+    if (activeTab === 'Valuation') {
+      setLoadingVal(true);
+      getValuation(propId).then(setValuation).catch(() => {}).finally(() => setLoadingVal(false));
+    }
+    if (activeTab === 'Risk') {
+      setLoadingRisk(true);
+      getRisk(propId).then(setRisk).catch(() => {}).finally(() => setLoadingRisk(false));
+    }
+  }, [activeTab, property, propId]);
+
+  if (toast) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="glass rounded-xl px-6 py-4 text-amber-400 text-sm">{toast}</div>
+      </div>
+    );
+  }
+
+  if (loadingProp || !property) {
+    return (
+      <div className="flex flex-col h-full page-fade">
+        <div className="px-6 py-3 border-b border-white/5 flex items-center gap-4 flex-shrink-0">
+          <Skeleton className="h-6 w-16" />
+        </div>
+        <Skeleton className="h-48 rounded-none" />
+        <div className="px-6 py-5 space-y-4">
+          <div className="grid grid-cols-3 gap-5">
+            <div className="col-span-2 space-y-4">
+              <div className="grid grid-cols-4 gap-3">
+                {[1,2,3,4].map(i => <Skeleton key={i} className="h-20" />)}
+              </div>
+              <Skeleton className="h-48" />
+            </div>
+            <div className="space-y-4">
+              <Skeleton className="h-32" />
+              <Skeleton className="h-32" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const rec = property.dealScore >= 70 ? 'Buy' : property.dealScore >= 50 ? 'Negotiate' : property.dealScore >= 35 ? 'Watch' : 'Avoid';
   const recColor = { Buy: 'text-emerald-400 border-emerald-400/40 bg-emerald-400/10', Negotiate: 'text-amber-400 border-amber-500/40 bg-amber-500/10', Watch: 'text-orange-400 border-orange-400/40 bg-orange-400/10', Avoid: 'text-red-400 border-red-400/40 bg-red-400/10' }[rec];
@@ -48,6 +113,9 @@ export default function IntelligencePage() {
           <button className="btn-ghost text-xs py-1.5 px-3"><Star size={12} /> Watch</button>
           <button className="btn-ghost text-xs py-1.5 px-3"><Share2 size={12} /> Share</button>
           <button className="btn-ghost text-xs py-1.5 px-3"><Bell size={12} /> Alert</button>
+          <button className="btn-ghost text-sm" onClick={() => navigate(`/copilot?property=${property.id}`)}>
+            <Bot size={14} /> Ask Copilot
+          </button>
           <button className="btn-primary text-sm" onClick={() => navigate(`/underwrite?property=${property.id}`)}>
             <Calculator size={14} /> Run Full Analysis
           </button>
@@ -105,8 +173,22 @@ export default function IntelligencePage() {
       <div className="flex-1 overflow-y-auto px-6 py-5">
         {activeTab === 'Overview' && <OverviewTab p={property} />}
         {activeTab === 'Financials' && <FinancialsTab p={property} />}
-        {activeTab === 'Valuation' && <ValuationTab p={property} />}
-        {activeTab === 'Risk' && <RiskTab p={property} />}
+        {activeTab === 'Valuation' && (
+          loadingVal ? (
+            <div className="grid grid-cols-3 gap-5">
+              <div className="col-span-2 space-y-4"><Skeleton className="h-32" /><Skeleton className="h-48" /></div>
+              <div className="space-y-4"><Skeleton className="h-40" /><Skeleton className="h-48" /></div>
+            </div>
+          ) : <ValuationTab p={property} valuation={valuation} />
+        )}
+        {activeTab === 'Risk' && (
+          loadingRisk ? (
+            <div className="grid grid-cols-3 gap-5">
+              <div className="col-span-2 space-y-3">{[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-20" />)}</div>
+              <div className="space-y-4"><Skeleton className="h-36" /><Skeleton className="h-36" /></div>
+            </div>
+          ) : <RiskTab p={property} riskData={risk} />
+        )}
         {activeTab === 'Market' && <MarketTab p={property} />}
         {activeTab === 'History' && <HistoryTab />}
       </div>
@@ -114,7 +196,10 @@ export default function IntelligencePage() {
   );
 }
 
-function OverviewTab({ p }: { p: Property }) {
+function OverviewTab({ p }: { p: Property & { rentEstimate?: any; nearbySchools?: any[] } }) {
+  const rentEst = (p as any).rentEstimate;
+  const schools: any[] = (p as any).nearbySchools ?? [];
+
   return (
     <div className="grid grid-cols-3 gap-5">
       <div className="col-span-2 space-y-4">
@@ -132,7 +217,7 @@ function OverviewTab({ p }: { p: Property }) {
               <MetricRow label="Price / SqFt" value={fmt.currency(Math.round(p.price / p.sqft))} />
               <MetricRow label="Year Built" value={String(p.yearBuilt)} />
               <MetricRow label="Living Area" value={`${fmt.num(p.sqft)} sqft`} />
-              <MetricRow label="Lot Size" value={`${fmt.num(p.lotSqft)} sqft`} />
+              <MetricRow label="Lot Size" value={`${fmt.num(p.lotSqft ?? 0)} sqft`} />
             </div>
             <div>
               <MetricRow label="Beds / Baths" value={`${p.beds} / ${p.baths}`} />
@@ -149,13 +234,44 @@ function OverviewTab({ p }: { p: Property }) {
             {p.riskFlags.map((f, i) => <FlagBadge key={i} label={f.label} severity={f.severity} />)}
           </div>
         </div>
+        {schools.length > 0 && (
+          <div className="glass rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><GraduationCap size={14} className="text-blue-400" /> Nearby Schools</h3>
+            <div className="space-y-2">
+              {schools.map((s, i) => (
+                <div key={i} className="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-semibold">{s.level[0]}</span>
+                    <span className="text-sm text-white">{s.name}</span>
+                    {s.isCharter && <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">Charter</span>}
+                    {s.isMagnet && <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">Magnet</span>}
+                  </div>
+                  <span className="text-xs text-slate-500">{s.level}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       <div className="space-y-4">
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-semibold text-white mb-2">Rent Estimate</h3>
-          <p className="text-3xl font-bold font-mono text-white">{fmt.currency(p.rentEstMid)}<span className="text-sm text-slate-400">/mo</span></p>
-          <p className="text-xs text-slate-500 mt-0.5">{fmt.currency(p.rentEstLow)} – {fmt.currency(p.rentEstHigh)}</p>
-          <div className="mt-2"><ConfidencePill level={p.rentConfidence} /></div>
+          {rentEst ? (
+            <>
+              <p className="text-3xl font-bold font-mono text-white">{fmt.currency(rentEst.rentMid ?? rentEst.rent_mid)}<span className="text-sm text-slate-400">/mo</span></p>
+              <p className="text-xs text-slate-500 mt-0.5">{fmt.currency(rentEst.rentLow ?? rentEst.rent_low)} – {fmt.currency(rentEst.rentHigh ?? rentEst.rent_high)}</p>
+              <div className="mt-2 flex items-center gap-2">
+                <ConfidencePill level={rentEst.confidence} />
+                <span className="text-xs text-slate-600">{rentEst.source}</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-3xl font-bold font-mono text-white">{fmt.currency(p.rentEstMid)}<span className="text-sm text-slate-400">/mo</span></p>
+              <p className="text-xs text-slate-500 mt-0.5">{fmt.currency(p.rentEstLow)} – {fmt.currency(p.rentEstHigh)}</p>
+              <div className="mt-2"><ConfidencePill level={p.rentConfidence} /></div>
+            </>
+          )}
         </div>
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-semibold text-white mb-2">Fair Value</h3>
@@ -169,7 +285,7 @@ function OverviewTab({ p }: { p: Property }) {
           <h3 className="text-sm font-semibold text-white mb-3">Neighborhood</h3>
           <div className="flex items-center gap-3 mb-3">
             <div className="text-2xl font-bold font-mono text-amber-400">{p.neighborhoodScore}</div>
-            <div className="flex-1"><ProgressBar value={p.neighborhoodScore} color="gold" /></div>
+            <div className="flex-1"><ProgressBar value={p.neighborhoodScore ?? 0} color="gold" /></div>
           </div>
           {[{ label: 'Schools', value: 72 }, { label: 'Safety', value: p.riskScore > 50 ? 55 : 78 }, { label: 'Walkability', value: 61 }, { label: 'Amenities', value: 80 }].map(s => (
             <div key={s.label} className="flex items-center gap-2 mb-2">
@@ -254,26 +370,35 @@ function FinancialsTab({ p }: { p: Property }) {
   );
 }
 
-function ValuationTab({ p }: { p: Property }) {
+function ValuationTab({ p, valuation }: { p: Property; valuation: ValuationData | null }) {
+  const fvLow = valuation?.fairValueLow ?? p.fairValueLow;
+  const fvHigh = valuation?.fairValueHigh ?? p.fairValueHigh;
+  const fvMid = valuation?.fairValueMid ?? (p.fairValueLow + p.fairValueHigh) / 2;
+  const confidence = valuation?.confidence ?? p.valuationConfidence;
+  const compCount = valuation?.compCount ?? 0;
+  const comps = valuation?.comps ?? [];
+  const pvFv = ((p.price - fvMid) / fvMid) * 100;
+
   return (
     <div className="grid grid-cols-3 gap-5">
       <div className="col-span-2 space-y-4">
         <div className="glass rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-white">STRATA Fair Value Estimate</h3>
-            <ConfidencePill level={p.valuationConfidence} />
+            <ConfidencePill level={confidence} />
           </div>
-          <p className="text-3xl font-bold font-mono text-white mb-1">{fmt.currency(p.fairValueLow)} – {fmt.currency(p.fairValueHigh)}</p>
-          <p className={clsx('text-base font-semibold', p.priceVsFairValue <= 0 ? 'text-emerald-400' : 'text-red-400')}>
-            List price is {p.priceVsFairValue <= 0 ? `${Math.abs(p.priceVsFairValue).toFixed(1)}% below` : `${p.priceVsFairValue.toFixed(1)}% above`} mid-point estimate
+          <p className="text-3xl font-bold font-mono text-white mb-1">{fmt.currency(fvLow)} – {fmt.currency(fvHigh)}</p>
+          <p className={clsx('text-base font-semibold', pvFv <= 0 ? 'text-emerald-400' : 'text-red-400')}>
+            List price is {pvFv <= 0 ? `${Math.abs(pvFv).toFixed(1)}% below` : `${pvFv.toFixed(1)}% above`} mid-point estimate
           </p>
+          {compCount > 0 && <p className="text-xs text-slate-500 mt-1">Based on {compCount} comparable sales</p>}
         </div>
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-semibold text-white mb-3">How We Got Here</h3>
           {[
-            { method: 'Comp-Based AVM (60% weight)', result: fmt.currency(Math.round((p.fairValueLow + p.fairValueHigh) / 2 - 3000)), note: '9 comps · avg. 72 days old' },
-            { method: 'Income Approach (25% weight)', result: fmt.currency(Math.round((p.fairValueLow + p.fairValueHigh) / 2 + 2000)), note: `Based on ${fmt.currency(p.rentEstMid)}/mo rent at 5.4% cap rate` },
-            { method: 'Hedonic Pricing (15% weight)', result: fmt.currency(Math.round((p.fairValueLow + p.fairValueHigh) / 2 - 5000)), note: `School quality 72 · walkability 61` },
+            { method: 'Comp-Based AVM (60% weight)', result: fmt.currency(Math.round(fvMid - 3000)), note: `${compCount || 9} comps · avg. 72 days old` },
+            { method: 'Income Approach (25% weight)', result: fmt.currency(Math.round(fvMid + 2000)), note: `Based on ${fmt.currency(p.rentEstMid)}/mo rent at 5.4% cap rate` },
+            { method: 'Hedonic Pricing (15% weight)', result: fmt.currency(Math.round(fvMid - 5000)), note: `School quality 72 · walkability 61` },
           ].map(m => (
             <div key={m.method} className="flex items-center justify-between p-3 rounded-lg bg-white/3 border border-white/5 mb-2">
               <div><p className="text-sm text-white font-medium">{m.method}</p><p className="text-xs text-slate-500">{m.note}</p></div>
@@ -299,7 +424,12 @@ function ValuationTab({ p }: { p: Property }) {
         </div>
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-semibold text-white mb-3">Comparable Sales</h3>
-          {[{ address: '4490 Oak Creek Dr', price: 338000, sqft: 1820, daysAgo: 34 }, { address: '521 Hillcrest Ave', price: 318000, sqft: 1760, daysAgo: 61 }, { address: '6102 Lakeview Blvd', price: 352000, sqft: 1910, daysAgo: 48 }].map(c => (
+          {comps.length > 0 ? comps.map((c, i) => (
+            <div key={i} className="flex justify-between items-center py-2 border-b border-white/5 last:border-0">
+              <div><p className="text-xs text-white">{c.address}</p><p className="text-[10px] text-slate-500">{fmt.num(c.sqft)} sqft{c.daysAgo ? ` · ${c.daysAgo}d ago` : ''}</p></div>
+              <div className="text-right"><p className="text-xs font-mono font-semibold text-white">{fmt.currency(c.adjustedValue || c.listPrice)}</p><p className="text-[10px] text-slate-500">{c.sqft ? fmt.currency(Math.round((c.adjustedValue || c.listPrice) / c.sqft)) : '—'}/sqft</p></div>
+            </div>
+          )) : [{ address: '4490 Oak Creek Dr', price: 338000, sqft: 1820, daysAgo: 34 }, { address: '521 Hillcrest Ave', price: 318000, sqft: 1760, daysAgo: 61 }, { address: '6102 Lakeview Blvd', price: 352000, sqft: 1910, daysAgo: 48 }].map(c => (
             <div key={c.address} className="flex justify-between items-center py-2 border-b border-white/5 last:border-0">
               <div><p className="text-xs text-white">{c.address}</p><p className="text-[10px] text-slate-500">{fmt.num(c.sqft)} sqft · {c.daysAgo}d ago</p></div>
               <div className="text-right"><p className="text-xs font-mono font-semibold text-white">{fmt.currency(c.price)}</p><p className="text-[10px] text-slate-500">{fmt.currency(Math.round(c.price / c.sqft))}/sqft</p></div>
@@ -311,8 +441,24 @@ function ValuationTab({ p }: { p: Property }) {
   );
 }
 
-function RiskTab({ p }: { p: Property }) {
-  const risks = [
+function FloodBadge({ riskLabel }: { riskLabel: string }) {
+  const styles: Record<string, string> = {
+    'Low Risk': 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30',
+    'Moderate Risk': 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+    'High Risk': 'text-red-400 bg-red-400/10 border-red-400/30',
+    'Very High Risk': 'text-red-500 bg-red-500/10 border-red-500/30',
+    'Undetermined': 'text-slate-400 bg-slate-400/10 border-slate-400/30',
+    'Unknown': 'text-slate-500 bg-slate-500/10 border-slate-500/30',
+  };
+  return (
+    <span className={clsx('inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded border', styles[riskLabel] ?? styles['Unknown'])}>
+      <Droplets size={10} /> {riskLabel}
+    </span>
+  );
+}
+
+function RiskTab({ p, riskData }: { p: Property; riskData: RiskData | null }) {
+  const defaultRisks = [
     { category: 'Market Risk', score: 28, note: 'Balanced market with stable price velocity.', icon: TrendingUp },
     { category: 'Pricing Risk', score: p.priceVsFairValue <= 0 ? 20 : 55, note: `List price ${Math.abs(p.priceVsFairValue).toFixed(1)}% ${p.priceVsFairValue <= 0 ? 'below' : 'above'} fair value estimate.`, icon: Home },
     { category: 'Tenant Risk', score: 32, note: 'Strong rental demand in this submarket.', icon: Shield },
@@ -320,7 +466,17 @@ function RiskTab({ p }: { p: Property }) {
     { category: 'Condition Risk', score: p.riskFlags.find(f => f.severity === 'High') ? 62 : 38, note: `Est. ${p.riskFlags.find(f => f.severity === 'High') ? '$18K–$28K' : '$8K–$15K'} deferred maintenance.`, icon: Home },
     { category: 'Tax / Assessment Risk', score: 35, note: 'TX 2.2% effective rate. No reassessment flag.', icon: Landmark },
   ];
-  const composite = Math.round(risks.reduce((s, r) => s + r.score, 0) / risks.length);
+
+  const liveRisks = riskData ? riskData.dimensions.map((d, idx) => ({
+    category: d.name,
+    score: d.score,
+    note: d.description,
+    icon: [TrendingUp, Home, Shield, AlertTriangle, Home, Landmark][idx % 6],
+  })) : defaultRisks;
+
+  const composite = riskData?.compositeScore ?? Math.round(defaultRisks.reduce((s, r) => s + r.score, 0) / defaultRisks.length);
+  const flags = riskData?.flags ?? p.riskFlags;
+  const flood = riskData?.floodRisk;
 
   return (
     <div className="grid grid-cols-3 gap-5">
@@ -331,9 +487,24 @@ function RiskTab({ p }: { p: Property }) {
             <RiskBadge score={composite} />
           </div>
           <ProgressBar value={composite} color={composite <= 30 ? 'green' : composite <= 55 ? 'gold' : 'red'} />
-          <p className="text-xs text-slate-500 mt-2">Based on {risks.length} risk dimensions. Lower is better.</p>
+          <p className="text-xs text-slate-500 mt-2">Based on {liveRisks.length} risk dimensions. Lower is better.</p>
         </div>
-        {risks.map(r => (
+
+        {flood && (
+          <div className="glass rounded-xl p-4 flex items-start gap-3">
+            <Droplets size={16} className="text-blue-400 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium text-white">FEMA Flood Zone</span>
+                <FloodBadge riskLabel={flood.riskLabel} />
+              </div>
+              <p className="text-xs text-slate-500">Zone {flood.zone} — {flood.description}</p>
+              {flood.inSfha && <p className="text-xs text-red-400 mt-1">⚠ Special Flood Hazard Area — flood insurance likely required</p>}
+            </div>
+          </div>
+        )}
+
+        {liveRisks.map(r => (
           <div key={r.category} className="glass rounded-xl p-4">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2"><r.icon size={14} className="text-slate-400" /><span className="text-sm font-medium text-white">{r.category}</span></div>
@@ -353,7 +524,7 @@ function RiskTab({ p }: { p: Property }) {
         </div>
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><ThumbsDown size={14} className="text-red-400" /> Watch Points</h3>
-          {p.riskFlags.map((f, i) => (
+          {flags.map((f, i) => (
             <div key={i} className="flex items-start gap-2 mb-2"><span className="text-amber-400">!</span><span className="text-xs text-slate-400">{f.label}</span></div>
           ))}
         </div>

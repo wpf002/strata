@@ -1,3 +1,4 @@
+import asyncio
 import uuid as _uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,6 +11,8 @@ from ..models.property import Property
 from ..models.user import User
 from ..schemas.property import PropertyResponse, ValuationResponse, RiskResponse
 from ..services import property_service, valuation_service, risk_service
+from ..services.school_service import get_nearby_schools
+from ..services.rent_service import get_rent_estimate
 
 router = APIRouter(prefix="/properties")
 
@@ -47,6 +50,29 @@ async def get_property(
     prop = await property_service.get_property_by_id(db, property_id)
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
+
+    lat = prop.lat
+    lng = prop.lng
+
+    if lat and lng:
+        flood_task = risk_service.get_flood_zone(lat, lng)
+        schools_task = get_nearby_schools(lat, lng)
+        rent_task = get_rent_estimate(
+            address=prop.address,
+            property_type=prop.type,
+            beds=prop.beds,
+            baths=prop.baths,
+            sqft=prop.sqft,
+        )
+        flood, schools, rent = await asyncio.gather(flood_task, schools_task, rent_task)
+        prop.flood_risk = flood
+        prop.nearby_schools = schools
+        prop.rent_estimate = rent
+    else:
+        prop.flood_risk = None
+        prop.nearby_schools = None
+        prop.rent_estimate = None
+
     return prop
 
 
@@ -76,7 +102,14 @@ async def get_risk(
     _: User | None = _OptUser,
 ):
     prop = await _load_or_mock_property(db, property_id)
-    return await risk_service.get_risk(db, prop)
+    risk = await risk_service.get_risk(db, prop)
+
+    lat = prop.lat
+    lng = prop.lon
+    if lat and lng:
+        risk.flood_risk = await risk_service.get_flood_zone(lat, lng)
+
+    return risk
 
 
 async def _get_valuation_for_id(db: AsyncSession, property_id: str) -> ValuationResponse:
