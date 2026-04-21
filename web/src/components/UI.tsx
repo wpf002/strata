@@ -68,5 +68,5 @@ export const fmt = {
   currency: (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n),
   pct: (n: number, d = 1) => `${n.toFixed(d)}%`,
   num: (n: number) => new Intl.NumberFormat('en-US').format(n),
-  compact: (n: number) => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(n),
+  compact: (n: number) => '$' + new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(n),
 };

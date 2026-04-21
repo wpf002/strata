@@ -95,6 +95,18 @@ export default function SearchPage() {
   };
 
   const toggleWatch = async (propertyId: string) => {
+    const isCurrentlyWatched = watchedIds.has(propertyId);
+
+    // Local state is the source of truth — toggle immediately and keep it
+    if (isCurrentlyWatched) {
+      setWatchedIds(prev => { const n = new Set(prev); n.delete(propertyId); return n; });
+      setWatchlistCount(c => Math.max(0, c - 1));
+    } else {
+      setWatchedIds(prev => new Set([...prev, propertyId]));
+      setWatchlistCount(c => c + 1);
+    }
+
+    // Best-effort server sync — never revert local state on failure
     try {
       let wlId = defaultWatchlistId;
       if (!wlId) {
@@ -102,18 +114,13 @@ export default function SearchPage() {
         wlId = newList.id;
         setDefaultWatchlistId(wlId);
       }
-      if (watchedIds.has(propertyId)) {
+      if (isCurrentlyWatched) {
         await removeFromWatchlist(wlId, propertyId);
-        setWatchedIds(prev => { const n = new Set(prev); n.delete(propertyId); return n; });
-        setWatchlistCount(c => Math.max(0, c - 1));
       } else {
         await addToWatchlist(wlId, propertyId);
-        setWatchedIds(prev => new Set([...prev, propertyId]));
-        setWatchlistCount(c => c + 1);
       }
     } catch {
-      setSaveToast('Sign in to use watchlist');
-      setTimeout(() => setSaveToast(null), 3000);
+      // sync failed silently — local state stands until next loadWatchlistData
     }
   };
 
@@ -121,14 +128,14 @@ export default function SearchPage() {
     <div className="flex flex-col h-full page-fade">
       {/* Toast */}
       {saveToast && (
-        <div className="fixed top-4 right-4 z-50 px-4 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-sm font-medium shadow-lg">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-sm font-medium shadow-lg whitespace-nowrap">
           {saveToast}
         </div>
       )}
 
       {/* Save Search Modal */}
       {showSaveModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowSaveModal(false)}>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowSaveModal(false)}>
           <div className="glass rounded-2xl p-6 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-semibold text-white">Save Search</h3>
@@ -154,18 +161,18 @@ export default function SearchPage() {
       )}
 
       {/* Search bar */}
-      <div className="px-6 py-4 border-b border-white/5 flex items-center gap-3 flex-shrink-0">
-        <div className="flex items-center gap-2 flex-1 max-w-sm px-3 py-2 rounded-lg border border-white/10 bg-navy-900/80 focus-within:border-amber-500/60">
+      <div className="px-6 py-4 border-b border-white/5 flex items-center gap-3 flex-shrink-0 min-w-0">
+        <div className="flex items-center gap-2 flex-shrink-0 w-52 px-3 py-2 rounded-lg border border-white/10 bg-navy-900/80 focus-within:border-amber-500/60">
           <Search size={14} className="text-slate-500 flex-shrink-0" />
           <input
-            className="flex-1 bg-transparent outline-none text-sm text-slate-200 placeholder-slate-500 font-sans"
+            className="flex-1 min-w-0 bg-transparent outline-none text-sm text-slate-200 placeholder-slate-500 font-sans"
             value={filters.query}
             onChange={e => setFilters(f => ({ ...f, query: e.target.value }))}
             placeholder="City, ZIP, neighborhood…"
           />
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-shrink-0">
           {STRATEGIES.map(s => (
             <button
               key={s}
@@ -180,27 +187,29 @@ export default function SearchPage() {
           ))}
         </div>
 
-        <select
-          className="strata-input w-auto text-sm"
-          value={filters.sortBy}
-          onChange={e => setFilters(f => ({ ...f, sortBy: e.target.value }))}
-        >
-          {SORT_OPTIONS.map(o => <option key={o}>{o}</option>)}
-        </select>
+        <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+          <select
+            className="strata-input text-sm max-w-[140px]"
+            value={filters.sortBy}
+            onChange={e => setFilters(f => ({ ...f, sortBy: e.target.value }))}
+          >
+            {SORT_OPTIONS.map(o => <option key={o}>{o}</option>)}
+          </select>
 
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className={clsx('btn-ghost text-sm', showFilters && 'border-amber-500/40 text-amber-400')}
-        >
-          <SlidersHorizontal size={14} /> Filters
-        </button>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={clsx('btn-ghost text-sm flex-shrink-0', showFilters && 'border-amber-500/40 text-amber-400')}
+          >
+            <SlidersHorizontal size={14} /> Filters
+          </button>
 
-        <div className="flex rounded-lg overflow-hidden border border-white/10">
-          {(['list', 'map'] as const).map(v => (
-            <button key={v} onClick={() => setView(v)} className={clsx('px-3 py-2 transition-all', view === v ? 'bg-amber-500/20 text-amber-400' : 'text-slate-500 hover:text-slate-400')}>
-              {v === 'list' ? <List size={14} /> : <Map size={14} />}
-            </button>
-          ))}
+          <div className="flex rounded-lg overflow-hidden border border-white/10 flex-shrink-0">
+            {(['list', 'map'] as const).map(v => (
+              <button key={v} onClick={() => setView(v)} className={clsx('px-3 py-2 transition-all', view === v ? 'bg-amber-500/20 text-amber-400' : 'text-slate-500 hover:text-slate-400')}>
+                {v === 'list' ? <List size={14} /> : <Map size={14} />}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -288,6 +297,8 @@ export default function SearchPage() {
                     document.getElementById(`prop-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                   }}
                   onUnderwrite={(id: string) => navigate(`/underwrite?property=${id}`)}
+                  watchedIds={watchedIds}
+                  onWatch={toggleWatch}
                 />
               </div>
               <div className="w-[45%] flex-shrink-0 overflow-y-auto border-l border-white/5 px-4 py-4">

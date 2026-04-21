@@ -54,9 +54,11 @@ interface MapViewProps {
   highlightedId: string | null;
   onPinClick: (id: string) => void;
   onUnderwrite: (id: string) => void;
+  watchedIds?: Set<string>;
+  onWatch?: (id: string) => void;
 }
 
-export default function MapView({ properties, highlightedId, onPinClick, onUnderwrite }: MapViewProps) {
+export default function MapView({ properties, highlightedId: _highlightedId, onPinClick, onUnderwrite, watchedIds, onWatch }: MapViewProps) {
   const center: [number, number] = [32.7767, -96.797];
 
   return (
@@ -96,12 +98,22 @@ export default function MapView({ properties, highlightedId, onPinClick, onUnder
                     </div>
                   ))}
                 </div>
-                <button
-                  style={{ width: '100%', background: '#c9a84c', color: '#0f172a', border: 'none', borderRadius: 6, padding: '5px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-                  onClick={() => onUnderwrite(p.id)}
-                >
-                  Underwrite
-                </button>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    style={{ flex: 1, background: '#c9a84c', color: '#0f172a', border: 'none', borderRadius: 6, padding: '5px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                    onClick={() => onUnderwrite(p.id)}
+                  >
+                    Underwrite
+                  </button>
+                  {onWatch && (
+                    <button
+                      style={{ background: watchedIds?.has(p.id) ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.07)', color: watchedIds?.has(p.id) ? '#f59e0b' : '#94a3b8', border: `1px solid ${watchedIds?.has(p.id) ? 'rgba(245,158,11,0.4)' : 'rgba(255,255,255,0.1)'}`, borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                      onClick={() => onWatch(p.id)}
+                    >
+                      ★
+                    </button>
+                  )}
+                </div>
               </div>
             </Popup>
           </Marker>
