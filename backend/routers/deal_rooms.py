@@ -8,6 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, and_
+from ..schemas import CamelModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import get_current_user
@@ -30,31 +31,31 @@ _DEFAULT_TASKS = [
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
 
-class Participant(BaseModel):
+class Participant(CamelModel):
     user_id: str | None = None
     role: Literal["Buyer", "Agent", "Lender", "Attorney"]
     email: str
     name: str
 
 
-class CreateRoomRequest(BaseModel):
+class CreateRoomRequest(CamelModel):
     property_address: str
     property_id: str | None = None
     participants: list[Participant] = []
 
 
-class UpdateRoomRequest(BaseModel):
+class UpdateRoomRequest(CamelModel):
     status: Literal["active", "closed", "cancelled"] | None = None
     participants: list[Participant] | None = None
 
 
-class CreateTaskRequest(BaseModel):
+class CreateTaskRequest(CamelModel):
     title: str
     assigned_to_email: str | None = None
     due_date: str | None = None
 
 
-class UpdateTaskRequest(BaseModel):
+class UpdateTaskRequest(CamelModel):
     status: Literal["pending", "complete"] | None = None
     title: str | None = None
     assigned_to_email: str | None = None
