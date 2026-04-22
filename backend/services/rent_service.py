@@ -1,14 +1,91 @@
 """
 Rent estimate service. Uses RentCast API when key is present; otherwise returns
 a model-based estimate from property characteristics.
+
+Quota protection:
+  - Results are persisted to disk (rent_cache.json) so server restarts don't
+    trigger fresh API calls for already-seen addresses.
+  - A monthly call counter (rent_usage.json) stops RentCast calls once
+    RENTCAST_MONTHLY_LIMIT is reached, falling back to the model estimate.
 """
+import json
 import time
+from pathlib import Path
+
 import httpx
+
 from ..config import get_settings
 
-_CACHE: dict[tuple, tuple[dict, float]] = {}
-_CACHE_TTL = 86_400  # 24 hours — RentCast quota is precious
+# ── Persistent storage ────────────────────────────────────────────────────────
 
+_DATA_DIR = Path(__file__).parent.parent / ".rentcast"
+_DATA_DIR.mkdir(exist_ok=True)
+
+_CACHE_FILE = _DATA_DIR / "rent_cache.json"
+_USAGE_FILE = _DATA_DIR / "rent_usage.json"
+
+_CACHE_TTL = 30 * 86_400      # 30 days — stable enough for mock properties
+RENTCAST_MONTHLY_LIMIT = 80   # stop calling RentCast after this many hits/month
+
+
+def _load_cache() -> dict:
+    try:
+        return json.loads(_CACHE_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def _save_cache(cache: dict) -> None:
+    try:
+        _CACHE_FILE.write_text(json.dumps(cache))
+    except Exception:
+        pass
+
+
+def _load_usage() -> dict:
+    try:
+        return json.loads(_USAGE_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def _save_usage(usage: dict) -> None:
+    try:
+        _USAGE_FILE.write_text(json.dumps(usage))
+    except Exception:
+        pass
+
+
+def clear_cache_for_testing() -> None:
+    """Delete all cached data — called by test fixtures only."""
+    try:
+        _CACHE_FILE.unlink(missing_ok=True)
+        _USAGE_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _month_key() -> str:
+    t = time.gmtime()
+    return f"{t.tm_year}-{t.tm_mon:02d}"
+
+
+def _under_quota() -> bool:
+    limit = get_settings().rentcast_monthly_limit
+    if limit == 0:
+        return False
+    usage = _load_usage()
+    return usage.get(_month_key(), 0) < limit
+
+
+def _increment_usage() -> None:
+    usage = _load_usage()
+    key = _month_key()
+    usage[key] = usage.get(key, 0) + 1
+    _save_usage(usage)
+
+
+# ── Public API ─────────────────────────────────────────────────────────────────
 
 async def get_rent_estimate(
     address: str,
@@ -17,22 +94,30 @@ async def get_rent_estimate(
     baths: float,
     sqft: int,
 ) -> dict:
-    cache_key = (address.lower().strip(), beds, int(baths * 2), sqft)
-    cached, ts = _CACHE.get(cache_key, ({}, 0.0))
-    if cached and time.time() - ts < _CACHE_TTL:
-        return cached
+    cache_key = f"{address.lower().strip()}|{beds}|{int(baths * 2)}|{sqft}"
+    cache = _load_cache()
+
+    entry = cache.get(cache_key)
+    if entry and time.time() - entry["ts"] < _CACHE_TTL:
+        return entry["data"]
 
     settings = get_settings()
     result: dict | None = None
-    if settings.rentcast_api_key:
+
+    if settings.rentcast_api_key and _under_quota():
         result = await _rentcast_estimate(
             settings.rentcast_api_key, address, property_type, beds, baths, sqft
         )
+        if result:
+            _increment_usage()
 
     out = result or _model_estimate(sqft, beds, baths)
-    _CACHE[cache_key] = (out, time.time())
+    cache[cache_key] = {"data": out, "ts": time.time()}
+    _save_cache(cache)
     return out
 
+
+# ── RentCast call ──────────────────────────────────────────────────────────────
 
 async def _rentcast_estimate(
     api_key: str,
@@ -55,24 +140,18 @@ async def _rentcast_estimate(
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(url, params=params, headers=headers)
-            if resp.status_code == 402 or resp.status_code == 403:
+            if resp.status_code in (402, 403, 429):
                 return None
             resp.raise_for_status()
             data = resp.json()
             rent_mid = data.get("rent", 0)
-            rent_low = data.get("rentRangeLow", round(rent_mid * 0.88))
-            rent_high = data.get("rentRangeHigh", round(rent_mid * 1.12))
-
             if not rent_mid:
                 return None
 
-            spread = (rent_high - rent_low) / rent_mid if rent_mid else 1
-            if spread < 0.15:
-                confidence = "High"
-            elif spread < 0.25:
-                confidence = "Medium"
-            else:
-                confidence = "Low"
+            rent_low = data.get("rentRangeLow", round(rent_mid * 0.88))
+            rent_high = data.get("rentRangeHigh", round(rent_mid * 1.12))
+            spread = (rent_high - rent_low) / rent_mid
+            confidence = "High" if spread < 0.15 else "Medium" if spread < 0.25 else "Low"
 
             return {
                 "rent_low": round(rent_low),
@@ -85,9 +164,10 @@ async def _rentcast_estimate(
         return None
 
 
+# ── Model fallback ─────────────────────────────────────────────────────────────
+
 def _model_estimate(sqft: int, beds: int, baths: float) -> dict:
-    estimate = sqft * 1.2
-    mid = round(estimate)
+    mid = round(sqft * 1.2)
     return {
         "rent_low": round(mid * 0.9),
         "rent_mid": mid,

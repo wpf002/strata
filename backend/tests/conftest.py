@@ -8,9 +8,9 @@ import backend.services.rent_service as _rent_svc
 
 @pytest.fixture(autouse=True)
 def clear_rent_cache():
-    _rent_svc._CACHE.clear()
+    _rent_svc.clear_cache_for_testing()
     yield
-    _rent_svc._CACHE.clear()
+    _rent_svc.clear_cache_for_testing()
 
 
 @pytest.fixture(autouse=True, scope="session")

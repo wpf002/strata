@@ -109,7 +109,7 @@ async def delete_holding(
     holding = result.scalar_one_or_none()
     if not holding:
         raise HTTPException(status_code=404, detail="Holding not found")
-    db.delete(holding)
+    await db.delete(holding)
 
 
 def _to_schema(h: PortfolioHolding) -> HoldingResponse:

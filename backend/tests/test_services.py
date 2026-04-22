@@ -111,6 +111,7 @@ async def test_rent_estimate_rentcast_success(httpx_mock: HTTPXMock):
     )
     mock_settings = MagicMock()
     mock_settings.rentcast_api_key = "test-key"
+    mock_settings.rentcast_monthly_limit = 500
     with patch("backend.services.rent_service.get_settings", return_value=mock_settings):
         result = await get_rent_estimate("123 Main St", "Single Family", 3, 2.0, 1800)
 
@@ -122,6 +123,7 @@ async def test_rent_estimate_rentcast_fallback_on_402(httpx_mock: HTTPXMock):
     httpx_mock.add_response(url=re.compile(r"https://api\.rentcast\.io"), status_code=402)
     mock_settings = MagicMock()
     mock_settings.rentcast_api_key = "test-key"
+    mock_settings.rentcast_monthly_limit = 500
     with patch("backend.services.rent_service.get_settings", return_value=mock_settings):
         result = await get_rent_estimate("123 Main St", "Single Family", 3, 2.0, 1800)
 

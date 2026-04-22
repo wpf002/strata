@@ -47,7 +47,7 @@ export default function Sidebar() {
         ))}
       </nav>
       <div className="px-3 pb-4 space-y-1 border-t border-white/5 pt-3">
-        <Link to="/settings" className="nav-item"><Bell size={16} /><span>Alerts</span><span className="ml-auto bg-amber-500 text-navy-950 text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">3</span></Link>
+        <Link to="/alerts" className="nav-item"><Bell size={16} /><span>Alerts</span></Link>
         <Link to="/settings" className="nav-item"><Settings size={16} /><span>Settings</span></Link>
         <div className="mt-3 px-1">
           <div className="glass rounded-xl p-3">

@@ -112,7 +112,6 @@ export default function PortfolioPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingHolding, setEditingHolding] = useState<PortfolioHolding | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
   const load = async () => {
     const p = await getPortfolio();
     setPortfolio(p);
@@ -120,11 +119,6 @@ export default function PortfolioPage() {
   };
 
   useEffect(() => { load(); }, []);
-
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
-  };
 
   const handleAdd = async (form: HoldingFormData) => {
     await createHolding({
@@ -140,7 +134,6 @@ export default function PortfolioPage() {
       status: 'Active',
     });
     await load();
-    showToast('Property added to portfolio');
   };
 
   const handleUpdate = async (form: HoldingFormData) => {
@@ -155,7 +148,6 @@ export default function PortfolioPage() {
       notes: form.notes || undefined,
     });
     await load();
-    showToast('Actuals updated');
   };
 
   const handleDelete = async (id: string) => {
@@ -166,7 +158,6 @@ export default function PortfolioPage() {
       setActiveId(remaining[0]?.id ?? '');
     }
     await load();
-    showToast('Property removed');
   };
 
   if (!portfolio) {
@@ -209,8 +200,6 @@ export default function PortfolioPage() {
 
   return (
     <div className="flex flex-col h-full page-fade overflow-hidden">
-      {toast && <div className="fixed top-4 right-4 z-50 px-4 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-sm font-medium shadow-lg">{toast}</div>}
-
       {showAddModal && (
         <HoldingModal title="Add Property" onClose={() => setShowAddModal(false)} onSave={handleAdd} />
       )}

@@ -66,7 +66,7 @@ async def delete_saved_search(
     row = result.scalar_one_or_none()
     if not row:
         raise HTTPException(status_code=404, detail="Saved search not found")
-    db.delete(row)
+    await db.delete(row)
 
 
 # ── Watchlists ────────────────────────────────────────────────────────────────

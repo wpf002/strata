@@ -49,6 +49,8 @@ export default function IntelligencePage() {
   const [loadingRisk, setLoadingRisk] = useState(false);
   const [isWatched, setIsWatched] = useState(false);
   const [watchlistId, setWatchlistId] = useState<string | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [alertSet, setAlertSet] = useState(false);
   const activityTracked = useRef(false);
 
   const propId = id || 'p1';
@@ -107,6 +109,13 @@ export default function IntelligencePage() {
 
   const handleShare = () => {
     navigator.clipboard.writeText(window.location.href);
+    setShareCopied(true);
+    setTimeout(() => setShareCopied(false), 2000);
+  };
+
+  const handleAlert = () => {
+    setAlertSet(true);
+    setTimeout(() => setAlertSet(false), 2000);
   };
 
   useEffect(() => {
@@ -208,8 +217,8 @@ export default function IntelligencePage() {
         )}
         <div className="ml-auto flex items-center gap-2">
           <button onClick={handleWatch} className={clsx('btn-ghost text-xs py-1.5 px-3', isWatched && 'text-amber-400')}><Star size={12} className={isWatched ? 'fill-amber-400' : ''} /> {isWatched ? 'Watching' : 'Watch'}</button>
-          <button onClick={handleShare} className="btn-ghost text-xs py-1.5 px-3"><Share2 size={12} /> Share</button>
-          <button className="btn-ghost text-xs py-1.5 px-3"><Bell size={12} /> Alert</button>
+          <button onClick={handleShare} className="btn-ghost text-xs py-1.5 px-3"><Share2 size={12} /> {shareCopied ? 'Copied!' : 'Share'}</button>
+          <button onClick={handleAlert} className={clsx('btn-ghost text-xs py-1.5 px-3', alertSet && 'text-amber-400')}><Bell size={12} /> {alertSet ? 'Alert Set!' : 'Alert'}</button>
           <button className="btn-ghost text-sm" onClick={() => navigate(`/copilot?property=${property.id}`)}>
             <Bot size={14} /> Ask Copilot
           </button>

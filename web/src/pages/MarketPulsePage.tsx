@@ -219,7 +219,7 @@ export default function MarketPulsePage() {
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 max-w-5xl">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             {markets.map(m => (
               <MarketCard key={`${m.city}-${m.state}`} market={m} onSearch={handleSearch} />
             ))}

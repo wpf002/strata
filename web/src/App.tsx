@@ -10,6 +10,7 @@ import MarketPulsePage from './pages/MarketPulsePage';
 import ClientsPage from './pages/ClientsPage';
 import LenderPage from './pages/LenderPage';
 import SettingsPage from './pages/SettingsPage';
+import AlertsPage from './pages/AlertsPage';
 import { useAuth } from './contexts/AuthContext';
 
 export default function App() {
@@ -43,6 +44,7 @@ export default function App() {
             <Route path="/clients" element={<ClientsPage />} />
             <Route path="/lender" element={<LenderPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/alerts" element={<AlertsPage />} />
           </Routes>
         </main>
       </div>

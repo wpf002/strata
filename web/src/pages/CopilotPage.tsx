@@ -239,6 +239,9 @@ export default function CopilotPage() {
 
   const renderContent = (content: string) => ({
     __html: content
+      .replace(/^### (.*?)$/gm, '<p class="text-sm font-semibold text-white mt-3 mb-0.5">$1</p>')
+      .replace(/^## (.*?)$/gm, '<p class="text-sm font-bold text-amber-400 mt-4 mb-1 tracking-wide uppercase">$1</p>')
+      .replace(/^# (.*?)$/gm, '<p class="text-base font-bold text-white mt-4 mb-1">$1</p>')
       .replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>')
       .replace(/\*(.*?)\*/g, '<em class="text-slate-400 text-xs">$1</em>')
       .replace(/^- (.*?)$/gm, '<div class="flex gap-2 my-1"><span class="text-amber-400 flex-shrink-0">·</span><span class="text-slate-300">$1</span></div>')
