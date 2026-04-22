@@ -193,6 +193,7 @@ async def update_room(
     if body.participants is not None:
         room.participants = [p.model_dump() for p in body.participants]
     await db.flush()
+    await db.refresh(room)
     tasks_result = await db.execute(
         select(DealRoomTask).where(DealRoomTask.deal_room_id == room_id)
     )
