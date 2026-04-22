@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, X, Check, CheckSquare, Square, Trash2, Send, MessageSquare, FileText, ChevronRight } from 'lucide-react';
+import { Plus, X, CheckSquare, Square, Trash2, Send, MessageSquare, FileText, ChevronRight } from 'lucide-react';
 import { clsx } from 'clsx';
 import { supabase } from '../lib/supabase';
 
@@ -358,6 +358,14 @@ export default function DealRoomsPage() {
     setActiveId(room.id);
   };
 
+  const handleDelete = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Delete this deal room? This cannot be undone.')) return;
+    await apiDelete(`/deal-rooms/${id}`);
+    setRooms(r => r.filter(room => room.id !== id));
+    if (activeId === id) { setActiveId(null); setActiveRoom(null); }
+  };
+
   if (loading) {
     return <div className="flex items-center justify-center h-full"><div className="glass rounded-xl w-80 h-40 animate-pulse" /></div>;
   }
@@ -393,13 +401,21 @@ export default function DealRoomsPage() {
               <div
                 key={r.id}
                 onClick={() => { setActiveId(r.id); setActiveRoom(null); }}
-                className={clsx('rounded-xl p-4 cursor-pointer transition-all border', activeId === r.id ? 'border-amber-500/40 bg-amber-500/5' : 'border-white/5 glass hover:border-white/15')}
+                className={clsx('rounded-xl p-4 cursor-pointer transition-all border group/card', activeId === r.id ? 'border-amber-500/40 bg-amber-500/5' : 'border-white/5 glass hover:border-white/15')}
               >
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-sm font-semibold text-white leading-tight">{r.propertyAddress}</p>
-                  <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded border flex-shrink-0', STATUS_STYLES[r.status])}>
-                    {r.status}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded border', STATUS_STYLES[r.status])}>
+                      {r.status.charAt(0).toUpperCase() + r.status.slice(1)}
+                    </span>
+                    <button
+                      onClick={e => handleDelete(r.id, e)}
+                      className="opacity-0 group-hover/card:opacity-100 text-slate-600 hover:text-red-400 transition-all"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 </div>
                 <div className="flex items-center gap-3 mt-2 text-[11px] text-slate-500">
                   <span>{r.participants.length} participant{r.participants.length !== 1 ? 's' : ''}</span>
@@ -432,7 +448,7 @@ export default function DealRoomsPage() {
                       <h2 className="text-base font-semibold text-white">{activeRoom.propertyAddress}</h2>
                       <div className="flex items-center gap-2 mt-1">
                         <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded border', STATUS_STYLES[activeRoom.status])}>
-                          {activeRoom.status}
+                          {activeRoom.status.charAt(0).toUpperCase() + activeRoom.status.slice(1)}
                         </span>
                         <div className="flex items-center gap-1">
                           {activeRoom.participants.slice(0, 4).map((p, i) => (

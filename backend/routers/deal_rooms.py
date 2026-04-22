@@ -180,6 +180,16 @@ async def get_room(
     return out
 
 
+@router.delete("/{room_id}", status_code=204)
+async def delete_room(
+    room_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    room = await _get_room_or_404(db, room_id, current_user.id)
+    await db.delete(room)
+
+
 @router.put("/{room_id}")
 async def update_room(
     room_id: uuid.UUID,
