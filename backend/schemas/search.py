@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from . import CamelModel
 
@@ -9,7 +10,7 @@ class SavedSearchCreate(CamelModel):
 
 
 class SavedSearchResponse(CamelModel):
-    id: str
+    id: uuid.UUID
     name: str | None = None
     criteria: dict
     alert_enabled: bool

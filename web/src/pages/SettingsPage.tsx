@@ -6,6 +6,8 @@ import { useAuth } from '../contexts/AuthContext';
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
+const BASE_URL = import.meta.env.VITE_API_URL ?? '';
+
 async function authHeaders(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
@@ -14,14 +16,14 @@ async function authHeaders(): Promise<Record<string, string>> {
 
 async function apiGet<T>(path: string): Promise<T> {
   const headers = await authHeaders();
-  const res = await fetch(path, { headers });
+  const res = await fetch(`${BASE_URL}${path}`, { headers });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }
 
 async function apiPut<T>(path: string, body: unknown): Promise<T> {
   const headers = await authHeaders();
-  const res = await fetch(path, { method: 'PUT', headers, body: JSON.stringify(body) });
+  const res = await fetch(`${BASE_URL}${path}`, { method: 'PUT', headers, body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }
@@ -62,13 +64,17 @@ function ProfileSection({ profile, onSave }: { profile: UserProfile; onSave: (na
   const [name, setName] = useState(profile.name ?? '');
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const save = async () => {
     setSaving(true);
+    setError(null);
     try {
       await onSave(name);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 2500);
+    } catch {
+      setError('Failed to save. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -85,6 +91,7 @@ function ProfileSection({ profile, onSave }: { profile: UserProfile; onSave: (na
         <input className="strata-input w-full max-w-sm opacity-50" value={profile.email} readOnly />
         <p className="text-xs text-slate-600 mt-1">Email cannot be changed here. Use account settings.</p>
       </div>
+      {error && <p className="text-xs text-red-400">{error}</p>}
       <button onClick={save} disabled={saving} className="btn-primary text-sm">
         <Save size={14} /> {success ? 'Saved!' : saving ? 'Saving…' : 'Save Profile'}
       </button>
@@ -99,15 +106,19 @@ function StrategySection({ settings, onSave }: {
   const [form, setForm] = useState({ ...settings });
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const set = (k: keyof typeof form) => (v: string | number) => setForm(f => ({ ...f, [k]: v }));
 
   const save = async () => {
     setSaving(true);
+    setError(null);
     try {
       await onSave(form);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 2500);
+    } catch {
+      setError('Failed to save. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -149,6 +160,7 @@ function StrategySection({ settings, onSave }: {
         </div>
         <input type="range" min={0} max={20} step={0.5} value={form.minCashOnCash ?? 6} onChange={e => set('minCashOnCash')(Number(e.target.value))} className="w-full h-1 accent-amber-500 cursor-pointer" />
       </div>
+      {error && <p className="text-xs text-red-400">{error}</p>}
       <button onClick={save} disabled={saving} className="btn-primary text-sm">
         <Save size={14} /> {success ? 'Saved!' : saving ? 'Saving…' : 'Save Strategy'}
       </button>
@@ -163,13 +175,17 @@ function AlertsSection({ settings, onSave }: {
   const [form, setForm] = useState({ ...settings });
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const save = async () => {
     setSaving(true);
+    setError(null);
     try {
       await onSave(form);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 2500);
+    } catch {
+      setError('Failed to save. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -217,6 +233,7 @@ function AlertsSection({ settings, onSave }: {
           ))}
         </div>
       </div>
+      {error && <p className="text-xs text-red-400">{error}</p>}
       <button onClick={save} disabled={saving} className="btn-primary text-sm">
         <Save size={14} /> {success ? 'Saved!' : saving ? 'Saving…' : 'Save Preferences'}
       </button>

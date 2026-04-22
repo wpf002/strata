@@ -10,11 +10,11 @@ interface MarketSummaryItem {
   state: string;
   regime: 'Hot' | 'Balanced' | 'Cooling' | "Buyer's Market";
   medianPrice: number;
-  priceChange12mo: number;
+  priceChange12Mo: number;
   inventoryMonths: number;
   daysOnMarket: number;
   capRateMedian: number;
-  rentGrowth12mo: number;
+  rentGrowth12Mo: number;
   vacancyRate: number;
 }
 
@@ -53,9 +53,9 @@ function generateRentTrend(capRate: number, medianPrice: number, rentGrowthPct: 
 
 function MarketCard({ market, onSearch }: { market: MarketSummaryItem; onSearch: (city: string, state: string) => void }) {
   const [expanded, setExpanded] = useState(false);
-  const priceTrend = generatePriceTrend(market.medianPrice, market.priceChange12mo);
-  const rentTrend = generateRentTrend(market.capRateMedian, market.medianPrice, market.rentGrowth12mo);
-  const positive = market.priceChange12mo >= 0;
+  const priceTrend = generatePriceTrend(market.medianPrice, market.priceChange12Mo);
+  const rentTrend = generateRentTrend(market.capRateMedian, market.medianPrice, market.rentGrowth12Mo);
+  const positive = market.priceChange12Mo >= 0;
 
   return (
     <div className={clsx('glass rounded-2xl border transition-all duration-200', expanded ? 'border-amber-500/30' : 'border-white/5 hover:border-white/15')}>
@@ -71,7 +71,7 @@ function MarketCard({ market, onSearch }: { market: MarketSummaryItem; onSearch:
             <p className="text-xl font-bold font-mono text-white">{fmt.compact(market.medianPrice)}</p>
             <div className={clsx('flex items-center justify-end gap-1 text-sm font-mono font-semibold', positive ? 'text-emerald-400' : 'text-red-400')}>
               {positive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-              {positive ? '+' : ''}{market.priceChange12mo.toFixed(1)}% 12mo
+              {positive ? '+' : ''}{market.priceChange12Mo.toFixed(1)}% 12mo
             </div>
           </div>
         </div>
@@ -112,7 +112,7 @@ function MarketCard({ market, onSearch }: { market: MarketSummaryItem; onSearch:
                     </defs>
                     <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${Math.round(v / 1000)}k`} />
-                    <Tooltip contentStyle={{ background: '#112240', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }} formatter={(v: number) => [fmt.currency(v), 'Median Price']} />
+                    <Tooltip contentStyle={{ background: '#112240', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }} formatter={(v) => [fmt.currency(Number(v)), 'Median Price']} />
                     <Area type="monotone" dataKey="value" stroke={positive ? '#34d399' : '#f87171'} strokeWidth={2} fill={`url(#pg-${market.city})`} />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -131,7 +131,7 @@ function MarketCard({ market, onSearch }: { market: MarketSummaryItem; onSearch:
                     </defs>
                     <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                    <Tooltip contentStyle={{ background: '#112240', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }} formatter={(v: number) => [fmt.currency(v), 'Avg Rent']} />
+                    <Tooltip contentStyle={{ background: '#112240', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }} formatter={(v) => [fmt.currency(Number(v)), 'Avg Rent']} />
                     <Area type="monotone" dataKey="value" stroke="#C9A84C" strokeWidth={2} fill={`url(#rg-${market.city})`} />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -142,8 +142,8 @@ function MarketCard({ market, onSearch }: { market: MarketSummaryItem; onSearch:
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="glass rounded-xl p-3">
               <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">Rent Growth 12mo</p>
-              <p className={clsx('font-bold font-mono', market.rentGrowth12mo >= 0 ? 'text-emerald-400' : 'text-red-400')}>
-                {market.rentGrowth12mo >= 0 ? '+' : ''}{market.rentGrowth12mo.toFixed(1)}%
+              <p className={clsx('font-bold font-mono', market.rentGrowth12Mo >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                {market.rentGrowth12Mo >= 0 ? '+' : ''}{market.rentGrowth12Mo.toFixed(1)}%
               </p>
             </div>
             <div className="glass rounded-xl p-3">
@@ -169,23 +169,25 @@ function MarketCard({ market, onSearch }: { market: MarketSummaryItem; onSearch:
   );
 }
 
+const BASE_URL = import.meta.env.VITE_API_URL ?? '';
+
 export default function MarketPulsePage() {
   const [markets, setMarkets] = useState<MarketSummaryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetch('/market/summary')
+    fetch(`${BASE_URL}/market/summary`)
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(setMarkets)
       .catch(() => {
         // Inline fallback if backend unavailable
         setMarkets([
-          { city: 'Dallas', state: 'TX', regime: 'Balanced', medianPrice: 342000, priceChange12mo: 4.2, inventoryMonths: 2.3, daysOnMarket: 28, capRateMedian: 5.4, rentGrowth12mo: 3.1, vacancyRate: 4.8 },
-          { city: 'Phoenix', state: 'AZ', regime: 'Balanced', medianPrice: 415000, priceChange12mo: 2.8, inventoryMonths: 2.9, daysOnMarket: 35, capRateMedian: 5.0, rentGrowth12mo: 2.4, vacancyRate: 5.2 },
-          { city: 'Nashville', state: 'TN', regime: 'Cooling', medianPrice: 468000, priceChange12mo: 1.2, inventoryMonths: 3.7, daysOnMarket: 42, capRateMedian: 4.8, rentGrowth12mo: 2.8, vacancyRate: 5.8 },
-          { city: 'Atlanta', state: 'GA', regime: 'Hot', medianPrice: 358000, priceChange12mo: 5.6, inventoryMonths: 1.7, daysOnMarket: 22, capRateMedian: 5.8, rentGrowth12mo: 4.2, vacancyRate: 4.2 },
-          { city: 'Tampa', state: 'FL', regime: 'Cooling', medianPrice: 392000, priceChange12mo: -0.8, inventoryMonths: 4.2, daysOnMarket: 56, capRateMedian: 5.1, rentGrowth12mo: 0.6, vacancyRate: 7.1 },
+          { city: 'Dallas', state: 'TX', regime: 'Balanced', medianPrice: 342000, priceChange12Mo: 4.2, inventoryMonths: 2.3, daysOnMarket: 28, capRateMedian: 5.4, rentGrowth12Mo: 3.1, vacancyRate: 4.8 },
+          { city: 'Phoenix', state: 'AZ', regime: 'Balanced', medianPrice: 415000, priceChange12Mo: 2.8, inventoryMonths: 2.9, daysOnMarket: 35, capRateMedian: 5.0, rentGrowth12Mo: 2.4, vacancyRate: 5.2 },
+          { city: 'Nashville', state: 'TN', regime: 'Cooling', medianPrice: 468000, priceChange12Mo: 1.2, inventoryMonths: 3.7, daysOnMarket: 42, capRateMedian: 4.8, rentGrowth12Mo: 2.8, vacancyRate: 5.8 },
+          { city: 'Atlanta', state: 'GA', regime: 'Hot', medianPrice: 358000, priceChange12Mo: 5.6, inventoryMonths: 1.7, daysOnMarket: 22, capRateMedian: 5.8, rentGrowth12Mo: 4.2, vacancyRate: 4.2 },
+          { city: 'Tampa', state: 'FL', regime: 'Cooling', medianPrice: 392000, priceChange12Mo: -0.8, inventoryMonths: 4.2, daysOnMarket: 56, capRateMedian: 5.1, rentGrowth12Mo: 0.6, vacancyRate: 7.1 },
         ]);
       })
       .finally(() => setLoading(false));

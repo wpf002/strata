@@ -42,6 +42,8 @@ const STRATEGY_COLORS: Record<string, string> = {
 
 // ── API helpers ──────────────────────────────────────────────────────────────
 
+const BASE_URL = import.meta.env.VITE_API_URL ?? '';
+
 async function authHeaders(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
@@ -50,30 +52,25 @@ async function authHeaders(): Promise<Record<string, string>> {
 
 async function apiGet<T>(path: string): Promise<T> {
   const headers = await authHeaders();
-  const res = await fetch(path, { headers });
+  const res = await fetch(`${BASE_URL}${path}`, { headers });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }
 
 async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const headers = await authHeaders();
-  const res = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
+  const res = await fetch(`${BASE_URL}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }
 
 async function apiPut<T>(path: string, body: unknown): Promise<T> {
   const headers = await authHeaders();
-  const res = await fetch(path, { method: 'PUT', headers, body: JSON.stringify(body) });
+  const res = await fetch(`${BASE_URL}${path}`, { method: 'PUT', headers, body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }
 
-async function apiDel(path: string): Promise<void> {
-  const headers = await authHeaders();
-  const res = await fetch(path, { method: 'DELETE', headers });
-  if (!res.ok && res.status !== 204) throw new Error(`${res.status}`);
-}
 
 // ── Client Modal ─────────────────────────────────────────────────────────────
 
@@ -214,7 +211,6 @@ export default function ClientsPage() {
   const [matchLoading, setMatchLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -246,11 +242,6 @@ export default function ClientsPage() {
     if (activeId) loadMatches(activeId);
   }, [activeId, loadMatches]);
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
-  };
-
   const handleCreate = async (form: ClientFormData) => {
     await apiPost('/clients', {
       name: form.name,
@@ -264,7 +255,6 @@ export default function ClientsPage() {
       notes: form.notes || null,
     });
     await load();
-    showToast('Client added!');
   };
 
   const handleUpdate = async (form: ClientFormData) => {
@@ -281,7 +271,6 @@ export default function ClientsPage() {
       notes: form.notes || null,
     });
     await load();
-    showToast('Client updated!');
   };
 
   const handleCopyLink = (propertyId: string) => {
@@ -297,7 +286,6 @@ export default function ClientsPage() {
   if (clients.length === 0 && !showModal) {
     return (
       <div className="flex flex-col h-full page-fade">
-        {toast && <div className="fixed top-4 right-4 z-50 px-4 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-sm font-medium shadow-lg">{toast}</div>}
         {showModal && <ClientModal title="Add Client" onClose={() => setShowModal(false)} onSave={handleCreate} />}
         <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">
           <div>

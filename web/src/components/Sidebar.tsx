@@ -14,7 +14,7 @@ export default function Sidebar() {
   return (
     <aside className="w-[220px] flex-shrink-0 flex flex-col h-full glass-dark border-r border-white/5">
       <div className="px-5 py-5 border-b border-white/5">
-        <div className="flex items-center gap-2.5">
+        <Link to="/" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
           <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center">
             <Zap size={16} className="text-navy-950" fill="currentColor" />
           </div>
@@ -25,7 +25,7 @@ export default function Sidebar() {
               <span className="text-[10px] text-emerald-400 font-medium">LIVE</span>
             </div>
           </div>
-        </div>
+        </Link>
       </div>
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
         {navSections.map(section => (

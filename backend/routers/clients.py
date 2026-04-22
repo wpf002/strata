@@ -98,7 +98,7 @@ async def delete_client(
     client = result.scalar_one_or_none()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
-    await db.delete(client)
+    db.delete(client)
 
 
 @router.get("/{client_id}/matches", response_model=list[PropertyResponse])

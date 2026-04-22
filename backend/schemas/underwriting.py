@@ -44,7 +44,7 @@ class UnderwritingOutputs(CamelModel):
 
 
 class ScenarioSaveRequest(CamelModel):
-    name: str
+    name: str = ""
     property_id: str | None = None
     strategy: str = "Buy and Hold"
     inputs: UnderwritingInputs

@@ -8,6 +8,9 @@ import httpx
 router = APIRouter(prefix="/market")
 log = logging.getLogger(__name__)
 
+_SUMMARY_CACHE: tuple[list, float] | None = None
+_SUMMARY_TTL = 21_600  # 6 hours — market data doesn't change minute-to-minute
+
 _MOCK_MARKET = {
     "city": "Dallas, TX",
     "regime": "Balanced",
@@ -97,6 +100,13 @@ async def _fetch_rentcast_market(city: str, state: str, api_key: str) -> dict | 
 
 @router.get("/summary", response_model=list[MarketSummaryItem])
 async def get_market_summary():
+    global _SUMMARY_CACHE
+    import time
+    if _SUMMARY_CACHE is not None:
+        cached, ts = _SUMMARY_CACHE
+        if time.time() - ts < _SUMMARY_TTL:
+            return cached
+
     settings = get_settings()
     results: list[MarketSummaryItem] = []
 
@@ -121,6 +131,7 @@ async def get_market_summary():
             vacancy_rate=b["vacancy_rate"],
         ))
 
+    _SUMMARY_CACHE = (results, time.time())
     return results
 
 

@@ -1,9 +1,10 @@
+import uuid
 from datetime import datetime
 from . import CamelModel
 
 
 class UserResponse(CamelModel):
-    id: str
+    id: uuid.UUID
     email: str
     name: str | None
     subscription_tier: str

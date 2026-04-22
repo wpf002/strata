@@ -45,11 +45,12 @@ async def save_scenario(
     current_user: User = Depends(get_current_user),
 ):
     prop_id = uuid.UUID(body.property_id) if body.property_id else None
+    name = body.name or f"{body.strategy} — ${body.inputs.purchase_price:,.0f}"
     scenario = UnderwritingScenario(
         user_id=current_user.id,
         property_id=prop_id,
         strategy=body.strategy,
-        name=body.name,
+        name=name,
         assumptions=body.inputs.model_dump(),
         outputs=body.outputs.model_dump(),
     )

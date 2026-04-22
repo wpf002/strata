@@ -33,7 +33,6 @@ export default function SearchPage() {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveSearchName, setSaveSearchName] = useState('');
   const [saveSearchLoading, setSaveSearchLoading] = useState(false);
-  const [saveToast, setSaveToast] = useState<string | null>(null);
 
   // Watchlist state
   const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
@@ -84,14 +83,11 @@ export default function SearchPage() {
     setSaveSearchLoading(true);
     try {
       await createSavedSearch(saveSearchName.trim(), filters as object);
-      setSaveToast('Search saved!');
       setShowSaveModal(false);
       setSaveSearchName('');
       setSavedSearches(prev => [...prev, { id: Date.now().toString(), name: saveSearchName, criteria: filters as object, alertEnabled: false, createdAt: new Date().toISOString() }]);
-      setTimeout(() => setSaveToast(null), 3000);
     } catch {
-      setSaveToast('Sign in to save searches');
-      setTimeout(() => setSaveToast(null), 3000);
+      // save failed silently
     } finally {
       setSaveSearchLoading(false);
     }
@@ -129,12 +125,7 @@ export default function SearchPage() {
 
   return (
     <div className="flex flex-col h-full page-fade">
-      {/* Toast */}
-      {saveToast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-sm font-medium shadow-lg whitespace-nowrap">
-          {saveToast}
-        </div>
-      )}
+
 
       {/* Save Search Modal */}
       {showSaveModal && (

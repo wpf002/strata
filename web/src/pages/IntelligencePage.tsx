@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Calculator, Star, Share2, Bell, ChevronRight, MapPin, Info, ThumbsUp, ThumbsDown, Clock, Home, TrendingUp, Shield, AlertTriangle, Landmark, Bot, Droplets, GraduationCap } from 'lucide-react';
-import { getProperty, getValuation, getRisk } from '../api/client';
+import { getProperty, getValuation, getRisk, getWatchlists, createWatchlist, addToWatchlist, removeFromWatchlist } from '../api/client';
 import type { Property } from '../types';
 import type { ValuationData, RiskData } from '../api/client';
 import { ScoreBadge, RiskBadge, RegimeBadge, FlagBadge, ConfidencePill, MetricRow, StatCard, ProgressBar, fmt } from '../components/UI';
@@ -30,9 +30,43 @@ export default function IntelligencePage() {
   const [loadingProp, setLoadingProp] = useState(true);
   const [loadingVal, setLoadingVal] = useState(false);
   const [loadingRisk, setLoadingRisk] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [isWatched, setIsWatched] = useState(false);
+  const [watchlistId, setWatchlistId] = useState<string | null>(null);
 
   const propId = id || 'p1';
+
+  useEffect(() => {
+    getWatchlists().then(wls => {
+      for (const wl of wls) {
+        if (wl.propertyIds.includes(propId)) {
+          setIsWatched(true);
+          setWatchlistId(wl.id);
+          return;
+        }
+      }
+    }).catch(() => {});
+  }, [propId]);
+
+  const handleWatch = async () => {
+    try {
+      if (isWatched && watchlistId) {
+        await removeFromWatchlist(watchlistId, propId);
+        setIsWatched(false);
+      } else {
+        const wls = await getWatchlists();
+        const wl = wls.find(w => w.name === 'My Watchlist') ?? await createWatchlist('My Watchlist');
+        setWatchlistId(wl.id);
+        await addToWatchlist(wl.id, propId);
+        setIsWatched(true);
+      }
+    } catch {
+      // not signed in — fail silently
+    }
+  };
+
+  const handleShare = () => {
+    navigator.clipboard.writeText(window.location.href);
+  };
 
   useEffect(() => {
     setLoadingProp(true);
@@ -40,7 +74,6 @@ export default function IntelligencePage() {
       .then(setProperty)
       .catch((err: Error) => {
         if (err.message.includes('404')) {
-          setToast('Property not found — redirecting to search…');
           setTimeout(() => navigate('/'), 2000);
         }
       })
@@ -58,14 +91,6 @@ export default function IntelligencePage() {
       getRisk(propId).then(setRisk).catch(() => {}).finally(() => setLoadingRisk(false));
     }
   }, [activeTab, property, propId]);
-
-  if (toast) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="glass rounded-xl px-6 py-4 text-amber-400 text-sm">{toast}</div>
-      </div>
-    );
-  }
 
   if (loadingProp || !property) {
     return (
@@ -110,8 +135,8 @@ export default function IntelligencePage() {
           <span>{property.city}, {property.state}</span>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <button className="btn-ghost text-xs py-1.5 px-3"><Star size={12} /> Watch</button>
-          <button className="btn-ghost text-xs py-1.5 px-3"><Share2 size={12} /> Share</button>
+          <button onClick={handleWatch} className={clsx('btn-ghost text-xs py-1.5 px-3', isWatched && 'text-amber-400')}><Star size={12} className={isWatched ? 'fill-amber-400' : ''} /> {isWatched ? 'Watching' : 'Watch'}</button>
+          <button onClick={handleShare} className="btn-ghost text-xs py-1.5 px-3"><Share2 size={12} /> Share</button>
           <button className="btn-ghost text-xs py-1.5 px-3"><Bell size={12} /> Alert</button>
           <button className="btn-ghost text-sm" onClick={() => navigate(`/copilot?property=${property.id}`)}>
             <Bot size={14} /> Ask Copilot
