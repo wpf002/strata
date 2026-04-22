@@ -21,7 +21,7 @@ def upgrade() -> None:
     op.create_table(
         "clients",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False, index=True),
+        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("email", sa.String(255), nullable=True),
         sa.Column("phone", sa.String(50), nullable=True),

@@ -1,8 +1,11 @@
 """
 Email alert service using SendGrid.
 """
+import logging
 import httpx
 from ..config import get_settings
+
+log = logging.getLogger(__name__)
 
 _APP_URL = "https://strata.app"
 
@@ -102,6 +105,10 @@ async def send_saved_search_alert(
                 json=payload,
                 headers={"Authorization": f"Bearer {settings.sendgrid_api_key}"},
             )
-            return resp.status_code in (200, 202)
-    except Exception:
+            if resp.status_code in (200, 202):
+                return True
+            log.warning("SendGrid %s: %s", resp.status_code, resp.text[:400])
+            return False
+    except Exception as exc:
+        log.warning("SendGrid request failed: %s", exc)
         return False

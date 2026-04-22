@@ -3,6 +3,14 @@ Shared pytest fixtures for backend tests.
 """
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
+import backend.services.rent_service as _rent_svc
+
+
+@pytest.fixture(autouse=True)
+def clear_rent_cache():
+    _rent_svc._CACHE.clear()
+    yield
+    _rent_svc._CACHE.clear()
 
 
 @pytest.fixture(autouse=True, scope="session")

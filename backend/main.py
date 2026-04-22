@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
 
     job = scheduler.get_job("search_alerts")
     next_run = job.next_run_time if job else "unknown"
-    log.info("Alert scheduler started. Next run: %s", next_run)
+    print(f"Alert scheduler started. Next run: {next_run}", flush=True)
 
     yield
 
@@ -73,21 +73,43 @@ class TestEmailRequest(BaseModel):
 
 @app.post("/alerts/test-email")
 async def send_test_email(body: TestEmailRequest):
-    from .services.alert_service import send_saved_search_alert
-    mock_properties = [
-        {
-            "id": "p1", "address": "4521 Oak Creek Drive", "city": "Dallas", "state": "TX",
-            "zip": "75201", "deal_score": 81, "price": 342000, "cap_rate": 6.4, "cash_flow": 312,
-        }
-    ]
-    sent = await send_saved_search_alert(
-        user_email=body.email,
-        search_name="STRATA Test Alert",
-        properties=mock_properties,
-    )
-    if not sent:
-        raise HTTPException(
-            status_code=503,
-            detail="Email not sent. Check SENDGRID_API_KEY and SENDGRID_FROM_EMAIL in backend/.env.",
-        )
-    return {"status": "sent", "to": body.email}
+    import httpx as _httpx
+    _settings = get_settings()
+
+    if not _settings.sendgrid_api_key:
+        raise HTTPException(status_code=503, detail="SENDGRID_API_KEY not set in backend/.env")
+
+    payload = {
+        "personalizations": [{"to": [{"email": body.email}]}],
+        "from": {"email": _settings.sendgrid_from_email, "name": "STRATA Alerts"},
+        "subject": "STRATA — Test Alert",
+        "content": [{"type": "text/html", "value": (
+            "<body style='background:#0f172a;font-family:sans-serif;padding:40px'>"
+            "<h1 style='color:#c9a84c'>STRATA</h1>"
+            "<p style='color:#f1f5f9'>Your email alerts are configured correctly. "
+            "You'll receive property matches here when new listings hit your saved searches.</p>"
+            "</body>"
+        )}],
+    }
+    try:
+        async with _httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                "https://api.sendgrid.com/v3/mail/send",
+                json=payload,
+                headers={"Authorization": f"Bearer {_settings.sendgrid_api_key}"},
+            )
+    except _httpx.RequestError as exc:
+        raise HTTPException(status_code=503, detail=f"Network error contacting SendGrid: {exc}")
+
+    if resp.status_code in (200, 202):
+        return {"status": "sent", "to": body.email}
+
+    # Surface the real SendGrid error so it's actionable
+    try:
+        sg_errors = resp.json().get("errors", [])
+        detail = sg_errors[0]["message"] if sg_errors else resp.text[:300]
+    except Exception:
+        detail = resp.text[:300]
+
+    status = 400 if resp.status_code == 403 else 502
+    raise HTTPException(status_code=status, detail=f"SendGrid error: {detail}")

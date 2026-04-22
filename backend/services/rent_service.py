@@ -2,8 +2,12 @@
 Rent estimate service. Uses RentCast API when key is present; otherwise returns
 a model-based estimate from property characteristics.
 """
+import time
 import httpx
 from ..config import get_settings
+
+_CACHE: dict[tuple, tuple[dict, float]] = {}
+_CACHE_TTL = 86_400  # 24 hours — RentCast quota is precious
 
 
 async def get_rent_estimate(
@@ -13,16 +17,21 @@ async def get_rent_estimate(
     baths: float,
     sqft: int,
 ) -> dict:
-    settings = get_settings()
+    cache_key = (address.lower().strip(), beds, int(baths * 2), sqft)
+    cached, ts = _CACHE.get(cache_key, ({}, 0.0))
+    if cached and time.time() - ts < _CACHE_TTL:
+        return cached
 
+    settings = get_settings()
+    result: dict | None = None
     if settings.rentcast_api_key:
         result = await _rentcast_estimate(
             settings.rentcast_api_key, address, property_type, beds, baths, sqft
         )
-        if result:
-            return result
 
-    return _model_estimate(sqft, beds, baths)
+    out = result or _model_estimate(sqft, beds, baths)
+    _CACHE[cache_key] = (out, time.time())
+    return out
 
 
 async def _rentcast_estimate(
