@@ -1,20 +1,33 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Calculator, Star, Share2, Bell, ChevronRight, MapPin, Info, ThumbsUp, ThumbsDown, Clock, Home, TrendingUp, Shield, AlertTriangle, Landmark, Bot, Droplets, GraduationCap } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  ArrowLeft, Calculator, Star, Share2, Bell, ChevronRight, MapPin, Info,
+  ThumbsUp, ThumbsDown, Clock, Home, TrendingUp, Shield, AlertTriangle,
+  Landmark, Bot, Droplets, GraduationCap, Target,
+} from 'lucide-react';
 import { getProperty, getValuation, getRisk, getWatchlists, createWatchlist, addToWatchlist, removeFromWatchlist } from '../api/client';
 import type { Property } from '../types';
 import type { ValuationData, RiskData } from '../api/client';
 import { ScoreBadge, RiskBadge, RegimeBadge, FlagBadge, ConfidencePill, MetricRow, StatCard, ProgressBar, fmt } from '../components/UI';
 import { clsx } from 'clsx';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { supabase } from '../lib/supabase';
 
-const TABS = ['Overview', 'Financials', 'Valuation', 'Risk', 'Market', 'History'];
+const TABS = ['Overview', 'Financials', 'Valuation', 'Risk', 'Market', 'Offer Strategy', 'History'];
 
 const priceHistory = [
   { date: 'Jan 23', price: 295000 }, { date: 'Apr 23', price: 310000 },
   { date: 'Jul 23', price: 318000 }, { date: 'Oct 23', price: 314000 },
   { date: 'Jan 24', price: 329000 }, { date: 'Apr 24', price: 342000 },
 ];
+
+const BASE_URL = import.meta.env.VITE_API_URL ?? '';
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+}
 
 function Skeleton({ className }: { className?: string }) {
   return <div className={clsx('glass rounded-xl animate-pulse', className)} />;
@@ -23,17 +36,35 @@ function Skeleton({ className }: { className?: string }) {
 export default function IntelligencePage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const clientId = searchParams.get('client');
+
   const [property, setProperty] = useState<Property | null>(null);
   const [valuation, setValuation] = useState<ValuationData | null>(null);
   const [risk, setRisk] = useState<RiskData | null>(null);
   const [activeTab, setActiveTab] = useState('Overview');
   const [loadingProp, setLoadingProp] = useState(true);
+  const [notFound, setNotFound] = useState(false);
   const [loadingVal, setLoadingVal] = useState(false);
   const [loadingRisk, setLoadingRisk] = useState(false);
   const [isWatched, setIsWatched] = useState(false);
   const [watchlistId, setWatchlistId] = useState<string | null>(null);
+  const activityTracked = useRef(false);
 
   const propId = id || 'p1';
+
+  // Track view for client attribution
+  useEffect(() => {
+    if (!clientId || activityTracked.current) return;
+    activityTracked.current = true;
+    authHeaders().then(headers => {
+      fetch(`${BASE_URL}/clients/${clientId}/activity`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ property_id: propId, activity_type: 'viewed' }),
+      }).catch(() => {});
+    });
+  }, [clientId, propId]);
 
   useEffect(() => {
     getWatchlists().then(wls => {
@@ -58,6 +89,16 @@ export default function IntelligencePage() {
         setWatchlistId(wl.id);
         await addToWatchlist(wl.id, propId);
         setIsWatched(true);
+        // Track saved activity if client context present
+        if (clientId) {
+          authHeaders().then(headers => {
+            fetch(`${BASE_URL}/clients/${clientId}/activity`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ property_id: propId, activity_type: 'saved' }),
+            }).catch(() => {});
+          });
+        }
       }
     } catch {
       // not signed in — fail silently
@@ -74,6 +115,7 @@ export default function IntelligencePage() {
       .then(setProperty)
       .catch((err: Error) => {
         if (err.message.includes('404')) {
+          setNotFound(true);
           setTimeout(() => navigate('/'), 2000);
         }
       })
@@ -90,7 +132,26 @@ export default function IntelligencePage() {
       setLoadingRisk(true);
       getRisk(propId).then(setRisk).catch(() => {}).finally(() => setLoadingRisk(false));
     }
-  }, [activeTab, property, propId]);
+    // Track underwriting activity when user navigates there via Copilot
+    if (activeTab === 'Offer Strategy' && clientId) {
+      authHeaders().then(headers => {
+        fetch(`${BASE_URL}/clients/${clientId}/activity`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ property_id: propId, activity_type: 'underwritten' }),
+        }).catch(() => {});
+      });
+    }
+  }, [activeTab, property, propId, clientId]);
+
+  if (notFound) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full page-fade gap-3">
+        <p className="text-lg font-semibold text-slate-300">Property not found</p>
+        <p className="text-sm text-slate-500">Redirecting you home…</p>
+      </div>
+    );
+  }
 
   if (loadingProp || !property) {
     return (
@@ -118,7 +179,12 @@ export default function IntelligencePage() {
   }
 
   const rec = property.dealScore >= 70 ? 'Buy' : property.dealScore >= 50 ? 'Negotiate' : property.dealScore >= 35 ? 'Watch' : 'Avoid';
-  const recColor = { Buy: 'text-emerald-400 border-emerald-400/40 bg-emerald-400/10', Negotiate: 'text-amber-400 border-amber-500/40 bg-amber-500/10', Watch: 'text-orange-400 border-orange-400/40 bg-orange-400/10', Avoid: 'text-red-400 border-red-400/40 bg-red-400/10' }[rec];
+  const recColor = {
+    Buy: 'text-emerald-400 border-emerald-400/40 bg-emerald-400/10',
+    Negotiate: 'text-amber-400 border-amber-500/40 bg-amber-500/10',
+    Watch: 'text-orange-400 border-orange-400/40 bg-orange-400/10',
+    Avoid: 'text-red-400 border-red-400/40 bg-red-400/10',
+  }[rec];
 
   return (
     <div className="flex flex-col h-full page-fade">
@@ -134,6 +200,12 @@ export default function IntelligencePage() {
           <ChevronRight size={12} />
           <span>{property.city}, {property.state}</span>
         </div>
+        {clientId && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20">
+            <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            <span className="text-[10px] text-amber-400 font-semibold">Shared with client</span>
+          </div>
+        )}
         <div className="ml-auto flex items-center gap-2">
           <button onClick={handleWatch} className={clsx('btn-ghost text-xs py-1.5 px-3', isWatched && 'text-amber-400')}><Star size={12} className={isWatched ? 'fill-amber-400' : ''} /> {isWatched ? 'Watching' : 'Watch'}</button>
           <button onClick={handleShare} className="btn-ghost text-xs py-1.5 px-3"><Share2 size={12} /> Share</button>
@@ -188,9 +260,9 @@ export default function IntelligencePage() {
       </div>
 
       {/* Tabs */}
-      <div className="px-6 border-b border-white/5 flex gap-6 flex-shrink-0">
+      <div className="px-6 border-b border-white/5 flex gap-6 flex-shrink-0 overflow-x-auto">
         {TABS.map(t => (
-          <button key={t} onClick={() => setActiveTab(t)} className={clsx('py-3 text-sm font-medium transition-all', activeTab === t ? 'tab-active' : 'tab-inactive')}>{t}</button>
+          <button key={t} onClick={() => setActiveTab(t)} className={clsx('py-3 text-sm font-medium transition-all whitespace-nowrap', activeTab === t ? 'tab-active' : 'tab-inactive')}>{t}</button>
         ))}
       </div>
 
@@ -215,11 +287,232 @@ export default function IntelligencePage() {
           ) : <RiskTab p={property} riskData={risk} />
         )}
         {activeTab === 'Market' && <MarketTab p={property} />}
+        {activeTab === 'Offer Strategy' && <OfferStrategyTab p={property} />}
         {activeTab === 'History' && <HistoryTab />}
       </div>
     </div>
   );
 }
+
+// ── Offer Strategy Tab ────────────────────────────────────────────────────────
+
+interface OfferResult {
+  offerLow: number;
+  offerMid: number;
+  offerHigh: number;
+  recommendedOffer: number;
+  acceptanceProbability: number;
+  negotiationNotes: string;
+  comparableSalesUsed: number;
+  daysOnMarket: number;
+  listToSaleRatio: number;
+  strategyNotes: string;
+}
+
+function OfferStrategyTab({ p }: { p: Property }) {
+  const [urgency, setUrgency] = useState<'low' | 'medium' | 'high'>('medium');
+  const [result, setResult] = useState<OfferResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    fetch(`${BASE_URL}/properties/${p.id}/offer-analysis`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ list_price: p.price, down_payment_pct: 25, strategy: 'Long-Term Rental', urgency }),
+    })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(setResult)
+      .catch(() => setError('Unable to load offer analysis.'))
+      .finally(() => setLoading(false));
+  }, [p.id, p.price, urgency]);
+
+  const recKey = p.dealScore >= 70 ? 'Buy' : p.dealScore >= 50 ? 'Negotiate' : p.dealScore >= 35 ? 'Watch' : 'Avoid';
+  const recBadgeColor = ({
+    Buy: 'text-emerald-400 border-emerald-400/40 bg-emerald-400/10',
+    Negotiate: 'text-amber-400 border-amber-500/40 bg-amber-500/10',
+    Watch: 'text-orange-400 border-orange-400/40 bg-orange-400/10',
+    Avoid: 'text-red-400 border-red-400/40 bg-red-400/10',
+  } as Record<string, string>)[recKey] ?? 'text-slate-400 border-slate-400/20';
+
+  if (loading) return (
+    <div className="space-y-4">
+      <Skeleton className="h-32" />
+      <Skeleton className="h-48" />
+      <Skeleton className="h-24" />
+    </div>
+  );
+
+  if (error) return (
+    <div className="glass rounded-xl p-6 text-center">
+      <p className="text-slate-500 text-sm">{error}</p>
+    </div>
+  );
+
+  if (!result) return null;
+
+  const pct = result.acceptanceProbability * 100;
+  const barWidth = result.offerHigh - result.offerLow;
+  const listPinPct = Math.max(0, Math.min(100, (p.price - result.offerLow) / barWidth * 100));
+  const recPinPct = Math.max(0, Math.min(100, (result.recommendedOffer - result.offerLow) / barWidth * 100));
+
+  return (
+    <div className="grid grid-cols-3 gap-5">
+      <div className="col-span-2 space-y-4">
+        {/* Urgency selector */}
+        <div className="glass rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Target size={14} className="text-amber-500" /> Offer Strategy</h3>
+            <div className="flex gap-1">
+              {(['low', 'medium', 'high'] as const).map(u => (
+                <button key={u} onClick={() => setUrgency(u)}
+                  className={clsx('text-xs px-3 py-1.5 rounded-lg border transition-all capitalize', urgency === u ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'text-slate-500 border-white/8 hover:border-white/20')}>
+                  {u}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Offer range bar */}
+          <div className="mb-4">
+            <div className="flex justify-between text-xs text-slate-500 mb-2">
+              <span>Low: <span className="text-white font-mono">{fmt.compact(result.offerLow)}</span></span>
+              <span>Mid: <span className="text-white font-mono">{fmt.compact(result.offerMid)}</span></span>
+              <span>High: <span className="text-white font-mono">{fmt.compact(result.offerHigh)}</span></span>
+            </div>
+            <div className="relative h-6 bg-navy-800 rounded-lg overflow-visible">
+              <div className="absolute inset-y-0 left-0 right-0 flex items-center px-3">
+                <div className="w-full h-2 bg-white/5 rounded-full relative">
+                  <div className="absolute inset-0 rounded-full bg-gradient-to-r from-blue-500/40 via-amber-500/60 to-emerald-500/40" />
+                  {/* List price pin */}
+                  <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2" style={{ left: `${listPinPct}%` }}>
+                    <div className="w-0.5 h-5 bg-red-400 relative -mt-1.5">
+                      <div className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] text-red-400 font-semibold">List</div>
+                    </div>
+                  </div>
+                  {/* Recommended offer pin */}
+                  <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2" style={{ left: `${recPinPct}%` }}>
+                    <div className="w-3 h-3 rounded-full bg-amber-400 border-2 border-amber-300 relative">
+                      <div className="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] text-amber-400 font-semibold">Rec.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Recommended offer highlight */}
+          <div className="flex items-center justify-between p-3 rounded-xl bg-amber-500/5 border border-amber-500/20">
+            <div>
+              <p className="text-xs text-slate-500">Recommended Offer</p>
+              <p className="text-2xl font-bold font-mono text-amber-400">{fmt.currency(result.recommendedOffer)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-slate-500 mb-0.5">vs. List Price</p>
+              <p className={clsx('text-sm font-semibold font-mono', result.recommendedOffer <= p.price ? 'text-emerald-400' : 'text-red-400')}>
+                {result.recommendedOffer <= p.price ? '-' : '+'}{fmt.currency(Math.abs(p.price - result.recommendedOffer))}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="glass rounded-xl p-4 text-center">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">Days on Market</p>
+            <p className={clsx('text-xl font-bold font-mono', result.daysOnMarket > 60 ? 'text-emerald-400' : result.daysOnMarket > 30 ? 'text-amber-400' : 'text-slate-300')}>{result.daysOnMarket}</p>
+          </div>
+          <div className="glass rounded-xl p-4 text-center">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">List/Sale Ratio</p>
+            <p className="text-xl font-bold font-mono text-slate-300">{(result.listToSaleRatio * 100).toFixed(1)}%</p>
+          </div>
+          <div className="glass rounded-xl p-4 text-center">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">Comps Used</p>
+            <p className="text-xl font-bold font-mono text-slate-300">{result.comparableSalesUsed}</p>
+          </div>
+        </div>
+
+        {/* Negotiation notes */}
+        <div className="glass rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-white mb-2">Negotiation Notes</h3>
+          <p className="text-sm text-slate-300 leading-relaxed">{result.negotiationNotes}</p>
+        </div>
+
+        {/* Strategy notes */}
+        <div className="glass rounded-xl p-4 border border-white/5">
+          <p className="text-xs text-slate-500 font-semibold uppercase tracking-wide mb-1">Strategy Note</p>
+          <p className="text-sm text-slate-400">{result.strategyNotes}</p>
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-3">
+          <button
+            onClick={() => navigate(`/copilot?property=${p.id}`)}
+            className="btn-primary flex-1 justify-center text-sm"
+          >
+            <Bot size={14} /> Generate Offer Memo
+          </button>
+          <button
+            onClick={() => navigate(`/underwrite?property=${p.id}`)}
+            className="btn-ghost flex-1 justify-center text-sm"
+          >
+            <Calculator size={14} /> Closing Costs
+          </button>
+        </div>
+      </div>
+
+      {/* Acceptance probability gauge */}
+      <div className="space-y-4">
+        <div className="glass rounded-xl p-5 text-center">
+          <h3 className="text-sm font-semibold text-white mb-4">Acceptance Probability</h3>
+          <div className="relative w-32 h-32 mx-auto mb-3">
+            <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+              <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="12" />
+              <circle cx="50" cy="50" r="40" fill="none"
+                stroke={pct >= 70 ? '#34d399' : pct >= 50 ? '#C9A84C' : pct >= 35 ? '#f97316' : '#f87171'}
+                strokeWidth="12"
+                strokeDasharray={`${pct * 2.513} 251.3`}
+                strokeLinecap="round"
+              />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <p className={clsx('text-2xl font-bold font-mono', pct >= 70 ? 'text-emerald-400' : pct >= 50 ? 'text-amber-400' : 'text-red-400')}>
+                {Math.round(pct)}%
+              </p>
+            </div>
+          </div>
+          <p className="text-xs text-slate-500">
+            {pct >= 72 ? 'High probability of acceptance' : pct >= 55 ? 'Moderate — seller may counter' : pct >= 38 ? 'Low — expect counteroffer' : 'Very low — close to lowball territory'}
+          </p>
+        </div>
+
+        <div className={clsx('rounded-xl p-4 border font-bold text-sm text-center', recBadgeColor)}>
+          STRATA: {p.dealScore >= 70 ? 'BUY' : p.dealScore >= 50 ? 'NEGOTIATE' : p.dealScore >= 35 ? 'WATCH' : 'AVOID'}
+        </div>
+
+        <div className="glass rounded-xl p-4">
+          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Offer Ranges</h3>
+          {[
+            { label: 'Aggressive Low', value: result.offerLow, color: 'text-blue-400' },
+            { label: 'Recommended', value: result.recommendedOffer, color: 'text-amber-400', highlight: true },
+            { label: 'Full Ask', value: result.offerHigh, color: 'text-emerald-400' },
+          ].map(r => (
+            <div key={r.label} className={clsx('flex justify-between items-center py-2', r.highlight && 'border-t border-b border-amber-500/20')}>
+              <span className="text-xs text-slate-500">{r.label}</span>
+              <span className={clsx('text-sm font-mono font-semibold', r.color)}>{fmt.currency(r.value)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Existing tabs (unchanged) ────────────────────────────────────────────────
 
 function OverviewTab({ p }: { p: Property & { rentEstimate?: any; nearbySchools?: any[] } }) {
   const rentEst = (p as any).rentEstimate;

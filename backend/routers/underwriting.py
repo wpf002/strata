@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -14,7 +15,12 @@ from ..schemas.underwriting import (
     ScenarioSaveRequest,
     ScenarioResponse,
 )
-from ..services.underwriting_service import compute_underwriting
+from ..services.underwriting_service import (
+    compute_underwriting,
+    brrrr_analysis,
+    flip_analysis,
+    str_analysis,
+)
 
 router = APIRouter(prefix="/underwriting")
 
@@ -23,6 +29,83 @@ router = APIRouter(prefix="/underwriting")
 async def calculate(inputs: UnderwritingInputs):
     return compute_underwriting(inputs)
 
+
+# ── BRRRR ─────────────────────────────────────────────────────────────────────
+
+class BrrrrRequest(BaseModel):
+    base: UnderwritingInputs
+    rehab_cost: float
+    arv: float
+    refi_ltv_pct: float = 75.0
+    refi_rate: float = 7.0
+
+
+@router.post("/brrrr")
+async def calculate_brrrr(body: BrrrrRequest):
+    return brrrr_analysis(
+        base=body.base,
+        rehab_cost=body.rehab_cost,
+        arv=body.arv,
+        refi_ltv_pct=body.refi_ltv_pct,
+        refi_rate=body.refi_rate,
+    )
+
+
+# ── Flip ──────────────────────────────────────────────────────────────────────
+
+class FlipRequest(BaseModel):
+    purchase_price: float
+    rehab_cost: float
+    arv: float
+    hold_months: int = 6
+    financing_rate: float = 0.12
+    agent_commission_pct: float = 0.055
+
+
+@router.post("/flip")
+async def calculate_flip(body: FlipRequest):
+    return flip_analysis(
+        purchase_price=body.purchase_price,
+        rehab_cost=body.rehab_cost,
+        arv=body.arv,
+        hold_months=body.hold_months,
+        financing_rate=body.financing_rate,
+        agent_commission_pct=body.agent_commission_pct,
+    )
+
+
+# ── STR ───────────────────────────────────────────────────────────────────────
+
+class StrRequest(BaseModel):
+    base: UnderwritingInputs
+    nightly_rate_low: float
+    nightly_rate_mid: float
+    nightly_rate_high: float
+    occupancy_low: float = 0.55
+    occupancy_mid: float = 0.70
+    occupancy_high: float = 0.82
+    platform_fee_pct: float = 0.03
+    cleaning_fee_per_stay: float = 120.0
+    avg_stay_nights: float = 3.5
+
+
+@router.post("/str")
+async def calculate_str(body: StrRequest):
+    return str_analysis(
+        base=body.base,
+        nightly_rate_low=body.nightly_rate_low,
+        nightly_rate_mid=body.nightly_rate_mid,
+        nightly_rate_high=body.nightly_rate_high,
+        occupancy_low=body.occupancy_low,
+        occupancy_mid=body.occupancy_mid,
+        occupancy_high=body.occupancy_high,
+        platform_fee_pct=body.platform_fee_pct,
+        cleaning_fee_per_stay=body.cleaning_fee_per_stay,
+        avg_stay_nights=body.avg_stay_nights,
+    )
+
+
+# ── Scenarios ─────────────────────────────────────────────────────────────────
 
 @router.get("/scenarios", response_model=list[ScenarioResponse])
 async def list_scenarios(

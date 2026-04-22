@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Calculator, Save, Share2, FileText, ChevronDown, CheckCircle, XCircle } from 'lucide-react';
+import { Calculator, Save, Share2, FileText, ChevronDown, CheckCircle, XCircle, ChevronRight } from 'lucide-react';
 import { getProperty, calculateUnderwriting } from '../api/client';
 import { supabase } from '../lib/supabase';
 
@@ -12,6 +12,406 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 
 const STRATEGIES = ['Long-Term Rental', 'BRRRR', 'Fix & Flip', 'Short-Term Rental', 'House Hack', 'Appreciation Play'];
 const LOAN_TYPES = ['30yr Fixed', '15yr Fixed', 'DSCR Loan', 'Interest Only', 'Hard Money'];
+
+// ── Closing Costs ─────────────────────────────────────────────────────────────
+
+interface ClosingCostItem {
+  name: string;
+  amount: number;
+  type: 'buyer' | 'lender' | 'govt';
+  required: boolean;
+  notes: string;
+}
+
+interface ClosingCostsResult {
+  items: ClosingCostItem[];
+  totalBuyerCosts: number;
+  totalCashToClose: number;
+  rangeLow: number;
+  rangeHigh: number;
+}
+
+const TYPE_COLORS: Record<string, string> = {
+  buyer: 'text-blue-400 bg-blue-400/10 border-blue-400/30',
+  lender: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+  govt: 'text-purple-400 bg-purple-400/10 border-purple-400/30',
+};
+
+function ClosingCostsSection({
+  purchasePrice,
+  downPaymentPct,
+}: { purchasePrice: number; downPaymentPct: number }) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<ClosingCostsResult | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const loanAmount = purchasePrice * (1 - downPaymentPct / 100);
+
+  useEffect(() => {
+    if (!open || data) return;
+    setLoading(true);
+    fetch('/properties/p1/closing-costs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        purchase_price: purchasePrice,
+        loan_amount: loanAmount,
+        state: 'TX',
+        is_first_time_buyer: false,
+        loan_type: '30yr Fixed',
+      }),
+    })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(setData)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [open, purchasePrice, loanAmount, data]);
+
+  // Reset when price changes
+  useEffect(() => { setData(null); }, [purchasePrice, downPaymentPct]);
+
+  return (
+    <div className="glass rounded-xl border border-white/5">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-5 py-4 text-sm font-semibold text-white hover:text-amber-400 transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <ChevronRight size={14} className={clsx('transition-transform text-amber-500', open && 'rotate-90')} />
+          Estimated Closing Costs
+        </span>
+        {data && !open && (
+          <span className="text-xs font-mono text-slate-400">{fmt.currency(data.totalBuyerCosts)} est.</span>
+        )}
+      </button>
+
+      {open && (
+        <div className="px-5 pb-5 border-t border-white/5 pt-4">
+          {loading ? (
+            <div className="space-y-2">
+              {[1, 2, 3, 4].map(i => <div key={i} className="h-8 glass rounded animate-pulse" />)}
+            </div>
+          ) : data ? (
+            <>
+              <div className="space-y-1.5 mb-4">
+                {data.items.map((item, i) => (
+                  <div key={i} className="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className={clsx('text-[10px] font-semibold px-1.5 py-0.5 rounded border flex-shrink-0', TYPE_COLORS[item.type] ?? 'text-slate-400')}>
+                        {item.type}
+                      </span>
+                      <span className="text-xs text-slate-300 truncate">{item.name}</span>
+                      {!item.required && <span className="text-[10px] text-slate-600 flex-shrink-0">optional</span>}
+                    </div>
+                    <span className="text-xs font-mono text-white flex-shrink-0 ml-3">{fmt.currency(item.amount)}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-2 pt-3 border-t border-white/10">
+                <div className="flex justify-between">
+                  <span className="text-sm text-slate-400">Total Buyer Closing Costs</span>
+                  <span className="text-sm font-mono font-semibold text-white">{fmt.currency(data.totalBuyerCosts)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm font-semibold text-white">Total Cash to Close</span>
+                  <span className="text-lg font-bold font-mono text-amber-400">{fmt.currency(data.totalCashToClose)}</span>
+                </div>
+                <p className="text-[10px] text-slate-600 pt-1">
+                  Estimate ±15% — final costs confirmed at closing disclosure. Range: {fmt.currency(data.rangeLow)} – {fmt.currency(data.rangeHigh)}
+                </p>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-slate-500">Could not load closing cost estimates.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── BRRRR Panel ───────────────────────────────────────────────────────────────
+
+interface BrrrrResult {
+  totalProjectCost: number;
+  refiLoanAmount: number;
+  cashLeftInDeal: number;
+  equityCaptured: number;
+  equityCapturePct: number;
+  postRefiCashFlow: number;
+  postRefiDscr: number;
+  brrrrReturnOnEquity: number;
+  arvConfidence: string;
+  [key: string]: number | string;
+}
+
+function BrrrrPanel({ inputs }: { inputs: Omit<UnderwritingInputs, 'propertyId'> & { propertyId: string } }) {
+  const [rehabCost, setRehabCost] = useState(35000);
+  const [arv, setArv] = useState(Math.round(inputs.purchasePrice * 1.25 / 5000) * 5000);
+  const [refiLtv, setRefiLtv] = useState(75);
+  const [refiRate, setRefiRate] = useState(7.0);
+  const [result, setResult] = useState<BrrrrResult | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const run = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}/underwriting/brrrr`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          base: {
+            property_id: inputs.propertyId,
+            purchase_price: inputs.purchasePrice,
+            down_payment_pct: inputs.downPaymentPct,
+            interest_rate: inputs.interestRate,
+            loan_type: inputs.loanType,
+            monthly_rent: inputs.monthlyRent,
+            vacancy_pct: inputs.vacancyPct,
+            management_pct: inputs.managementPct,
+            maintenance_pct: inputs.maintenancePct,
+            insurance_monthly: inputs.insuranceMonthly,
+            capex_pct: inputs.capexPct,
+          },
+          rehab_cost: rehabCost,
+          arv,
+          refi_ltv_pct: refiLtv,
+          refi_rate: refiRate,
+        }),
+      });
+      if (res.ok) setResult(await res.json());
+    } catch { /* graceful */ }
+    setLoading(false);
+  }, [inputs, rehabCost, arv, refiLtv, refiRate]);
+
+  useEffect(() => { run(); }, [run]);
+
+  return (
+    <div className="glass rounded-xl p-5 space-y-4">
+      <h3 className="text-sm font-semibold text-white">BRRRR Analysis</h3>
+
+      {/* Inputs */}
+      <div className="grid grid-cols-2 gap-3">
+        <SliderRow label="Rehab Cost" value={rehabCost} display={fmt.compact(rehabCost)} min={0} max={150000} step={5000} onChange={setRehabCost} />
+        <SliderRow label="After Repair Value" value={arv} display={fmt.compact(arv)} min={inputs.purchasePrice} max={inputs.purchasePrice * 2} step={5000} onChange={setArv} />
+        <SliderRow label="Refi LTV %" value={refiLtv} display={`${refiLtv}%`} min={50} max={80} step={5} onChange={setRefiLtv} />
+        <SliderRow label="Refi Rate" value={refiRate} display={`${refiRate.toFixed(2)}%`} min={5} max={12} step={0.125} onChange={setRefiRate} />
+      </div>
+
+      {loading && <div className="h-8 glass rounded animate-pulse" />}
+
+      {result && !loading && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <Metric label="Total Project Cost" value={fmt.currency(result.totalProjectCost)} />
+            <Metric label="Refi Loan Amount" value={fmt.currency(result.refiLoanAmount)} />
+            <Metric label="Cash Left in Deal" value={fmt.currency(result.cashLeftInDeal)} color={result.cashLeftInDeal < 10000 ? 'text-emerald-400' : 'text-white'} />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <Metric
+              label="Equity Captured"
+              value={fmt.currency(result.equityCaptured)}
+              sub={`${result.equityCapturePct}%`}
+              color={result.equityCaptured > 20000 ? 'text-amber-400' : 'text-white'}
+            />
+            <Metric label="Post-Refi Cash Flow" value={`${result.postRefiCashFlow >= 0 ? '+' : ''}${fmt.currency(result.postRefiCashFlow)}/mo`} color={result.postRefiCashFlow >= 0 ? 'text-emerald-400' : 'text-red-400'} />
+            <Metric label="BRRRR ROE" value={`${result.brrrrReturnOnEquity}%`} sub="annual" color={result.brrrrReturnOnEquity > 10 ? 'text-emerald-400' : 'text-slate-300'} />
+          </div>
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-white/3 border border-white/5">
+            <span className="text-xs text-slate-500">ARV Confidence:</span>
+            <span className={clsx('text-xs font-semibold', result.arvConfidence === 'High' ? 'text-emerald-400' : result.arvConfidence === 'Medium' ? 'text-amber-400' : 'text-red-400')}>
+              {String(result.arvConfidence)}
+            </span>
+            <span className="text-xs text-slate-500 ml-2">Post-Refi DSCR:</span>
+            <span className={clsx('text-xs font-mono font-semibold', result.postRefiDscr >= 1.25 ? 'text-emerald-400' : 'text-red-400')}>
+              {Number(result.postRefiDscr).toFixed(2)}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Flip Panel ────────────────────────────────────────────────────────────────
+
+function FlipPanel({ purchasePrice }: { purchasePrice: number }) {
+  const [rehabCost, setRehabCost] = useState(40000);
+  const [arv, setArv] = useState(Math.round(purchasePrice * 1.30 / 5000) * 5000);
+  const [holdMonths, setHoldMonths] = useState(6);
+  const [result, setResult] = useState<Record<string, number> | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const run = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}/underwriting/flip`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          purchase_price: purchasePrice,
+          rehab_cost: rehabCost,
+          arv,
+          hold_months: holdMonths,
+          financing_rate: 0.12,
+          agent_commission_pct: 0.055,
+        }),
+      });
+      if (res.ok) setResult(await res.json());
+    } catch { /* graceful */ }
+    setLoading(false);
+  }, [purchasePrice, rehabCost, arv, holdMonths]);
+
+  useEffect(() => { run(); }, [run]);
+
+  return (
+    <div className="glass rounded-xl p-5 space-y-4">
+      <h3 className="text-sm font-semibold text-white">Flip Analysis</h3>
+
+      <div className="grid grid-cols-2 gap-3">
+        <SliderRow label="Rehab Cost" value={rehabCost} display={fmt.compact(rehabCost)} min={0} max={150000} step={5000} onChange={setRehabCost} />
+        <SliderRow label="After Repair Value" value={arv} display={fmt.compact(arv)} min={purchasePrice} max={purchasePrice * 2} step={5000} onChange={setArv} />
+        <SliderRow label="Hold Period" value={holdMonths} display={`${holdMonths} months`} min={1} max={24} step={1} onChange={setHoldMonths} />
+      </div>
+
+      {loading && <div className="h-8 glass rounded animate-pulse" />}
+
+      {result && !loading && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <Metric label="Total Cost" value={fmt.currency(result.totalCost)} />
+            <Metric label="Gross Profit" value={`${result.grossProfit >= 0 ? '+' : ''}${fmt.currency(result.grossProfit)}`} color={result.grossProfit >= 0 ? 'text-emerald-400' : 'text-red-400'} />
+            <Metric label="Net Profit" value={`${result.netProfit >= 0 ? '+' : ''}${fmt.currency(result.netProfit)}`} color={result.netProfit >= 0 ? 'text-emerald-400' : 'text-red-400'} />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <Metric label="Return on Cost" value={`${result.returnOnCost}%`} color={result.returnOnCost >= 15 ? 'text-emerald-400' : result.returnOnCost >= 8 ? 'text-amber-400' : 'text-red-400'} />
+            <Metric label="Annualized Return" value={`${result.annualizedReturn}%`} color={result.annualizedReturn >= 20 ? 'text-emerald-400' : 'text-slate-300'} />
+            <Metric label="Break-Even ARV" value={fmt.compact(result.breakEvenArv)} sub="min to profit" />
+          </div>
+          <div className="p-3 rounded-lg bg-white/3 border border-white/5">
+            <p className="text-xs text-slate-500">
+              Agent fees: {fmt.currency(result.agentFees)} · Holding costs: {fmt.currency(result.holdingCosts)} · Timeline risk: {holdMonths > 9 ? 'Elevated' : 'Moderate'}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── STR Panel ─────────────────────────────────────────────────────────────────
+
+function StrPanel({ inputs }: { inputs: Omit<UnderwritingInputs, 'propertyId'> & { propertyId: string } }) {
+  const [nightlyLow, setNightlyLow] = useState(120);
+  const [nightlyMid, setNightlyMid] = useState(165);
+  const [nightlyHigh, setNightlyHigh] = useState(220);
+  const [occupancyMid, setOccupancyMid] = useState(70);
+  const [result, setResult] = useState<Record<string, number> | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const run = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}/underwriting/str`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          base: {
+            property_id: inputs.propertyId,
+            purchase_price: inputs.purchasePrice,
+            down_payment_pct: inputs.downPaymentPct,
+            interest_rate: inputs.interestRate,
+            loan_type: inputs.loanType,
+            monthly_rent: inputs.monthlyRent,
+            vacancy_pct: inputs.vacancyPct,
+            management_pct: inputs.managementPct,
+            maintenance_pct: inputs.maintenancePct,
+            insurance_monthly: inputs.insuranceMonthly,
+            capex_pct: inputs.capexPct,
+          },
+          nightly_rate_low: nightlyLow,
+          nightly_rate_mid: nightlyMid,
+          nightly_rate_high: nightlyHigh,
+          occupancy_low: (occupancyMid - 15) / 100,
+          occupancy_mid: occupancyMid / 100,
+          occupancy_high: Math.min((occupancyMid + 12) / 100, 0.95),
+          platform_fee_pct: 0.03,
+          cleaning_fee_per_stay: 120,
+          avg_stay_nights: 3.5,
+        }),
+      });
+      if (res.ok) setResult(await res.json());
+    } catch { /* graceful */ }
+    setLoading(false);
+  }, [inputs, nightlyLow, nightlyMid, nightlyHigh, occupancyMid]);
+
+  useEffect(() => { run(); }, [run]);
+
+  return (
+    <div className="glass rounded-xl p-5 space-y-4">
+      <h3 className="text-sm font-semibold text-white">STR Revenue Analysis</h3>
+
+      <div className="grid grid-cols-2 gap-3">
+        <SliderRow label="Nightly Rate (Low)" value={nightlyLow} display={`$${nightlyLow}/night`} min={50} max={300} step={5} onChange={setNightlyLow} />
+        <SliderRow label="Nightly Rate (Mid)" value={nightlyMid} display={`$${nightlyMid}/night`} min={50} max={500} step={5} onChange={setNightlyMid} />
+        <SliderRow label="Nightly Rate (High)" value={nightlyHigh} display={`$${nightlyHigh}/night`} min={50} max={700} step={10} onChange={setNightlyHigh} />
+        <SliderRow label="Target Occupancy" value={occupancyMid} display={`${occupancyMid}%`} min={30} max={95} step={1} onChange={setOccupancyMid} />
+      </div>
+
+      {loading && <div className="h-8 glass rounded animate-pulse" />}
+
+      {result && !loading && (
+        <div className="space-y-3">
+          {/* Revenue bar */}
+          <div className="grid grid-cols-3 gap-2 text-center">
+            {[
+              { label: 'Low', value: result.strMonthlyRevenueLow, cap: result.strCapRateLow },
+              { label: 'Mid', value: result.strMonthlyRevenueMid, cap: result.strCapRateMid, highlight: true },
+              { label: 'High', value: result.strMonthlyRevenueHigh, cap: result.strCapRateHigh },
+            ].map(s => (
+              <div key={s.label} className={clsx('p-3 rounded-xl border', s.highlight ? 'border-amber-500/30 bg-amber-500/5' : 'border-white/5 bg-white/3')}>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wide">{s.label}</p>
+                <p className={clsx('text-base font-bold font-mono', s.highlight ? 'text-amber-400' : 'text-white')}>{fmt.currency(s.value)}/mo</p>
+                <p className="text-[10px] text-slate-500">{Number(s.cap).toFixed(1)}% cap</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <Metric
+              label="STR vs LTR Premium"
+              value={`${result.strVsLtrPremium >= 0 ? '+' : ''}${result.strVsLtrPremium}%`}
+              color={result.strVsLtrPremium > 0 ? 'text-emerald-400' : 'text-red-400'}
+            />
+            <Metric label="Occ. Break-Even" value={`${result.occupancyBreakEven}%`} sub="vs LTR" />
+            <Metric label="LTR Revenue" value={`${fmt.currency(result.ltrMonthlyRevenue)}/mo`} sub={`${result.ltrCapRate}% cap`} />
+          </div>
+
+          <div className="p-3 rounded-lg bg-white/3 border border-white/5">
+            <p className="text-xs text-slate-500">
+              Annual STR revenue (mid): {fmt.currency(result.strAnnualRevenueMid)} · Platform fee (3% Airbnb) included · Occupancy break-even to match LTR: {result.occupancyBreakEven}%
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Small metric card ─────────────────────────────────────────────────────────
+
+function Metric({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
+  return (
+    <div className="p-3 rounded-lg bg-white/3 border border-white/5">
+      <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">{label}</p>
+      <p className={clsx('text-sm font-bold font-mono', color ?? 'text-white')}>{value}</p>
+      {sub && <p className="text-[10px] text-slate-600 mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function UnderwritePage() {
   const [searchParams] = useSearchParams();
@@ -38,7 +438,6 @@ export default function UnderwritePage() {
     strategy: 'Long-Term Rental',
   });
 
-  // Load property
   useEffect(() => {
     getProperty(propertyId).then(p => {
       setProperty(p);
@@ -46,7 +445,6 @@ export default function UnderwritePage() {
     });
   }, [propertyId]);
 
-  // Recalculate on every input change
   const recalculate = useCallback(() => {
     calculateUnderwriting({ ...inputs, propertyId, strategy }).then(setOutputs);
   }, [inputs, propertyId, strategy]);
@@ -122,6 +520,8 @@ export default function UnderwritePage() {
     'Avoid': 'text-red-400 border-red-400/40 bg-red-400/10',
   }[outputs.recommendation];
 
+  const fullInputs = { ...inputs, propertyId };
+
   return (
     <div className="flex flex-col h-full page-fade overflow-hidden">
       {/* Header */}
@@ -191,7 +591,7 @@ export default function UnderwritePage() {
           )}
         </div>
 
-        {/* Results — live */}
+        {/* Results */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {/* Recommendation */}
           <div className={clsx('rounded-xl p-4 border flex items-center gap-4', recColor)}>
@@ -300,6 +700,14 @@ export default function UnderwritePage() {
               </p>
             </div>
           </div>
+
+          {/* Strategy-specific panels */}
+          {strategy === 'BRRRR' && <BrrrrPanel inputs={fullInputs} />}
+          {strategy === 'Fix & Flip' && <FlipPanel purchasePrice={inputs.purchasePrice} />}
+          {strategy === 'Short-Term Rental' && <StrPanel inputs={fullInputs} />}
+
+          {/* Closing costs — always shown, collapsed by default */}
+          <ClosingCostsSection purchasePrice={inputs.purchasePrice} downPaymentPct={inputs.downPaymentPct} />
         </div>
       </div>
     </div>

@@ -87,3 +87,188 @@ def compute_underwriting(i: UnderwritingInputs) -> UnderwritingOutputs:
         recommendation=recommendation,
         scenarios=scenarios,
     )
+
+
+# ── BRRRR Analysis ────────────────────────────────────────────────────────────
+
+def brrrr_analysis(base: UnderwritingInputs, rehab_cost: float, arv: float,
+                   refi_ltv_pct: float = 75.0, refi_rate: float = 7.0) -> dict:
+    ltr = compute_underwriting(base)
+    purchase = base.purchase_price
+    hold_months = 6
+    hard_money_rate = 0.12
+
+    holding_costs = (purchase * hard_money_rate / 12) * hold_months
+    total_project_cost = purchase + rehab_cost + holding_costs
+
+    arv_confidence: str
+    if arv > purchase * 1.30:
+        arv_confidence = "Low"
+    elif arv > purchase * 1.15:
+        arv_confidence = "Medium"
+    else:
+        arv_confidence = "High"
+
+    refi_loan_amount = arv * (refi_ltv_pct / 100)
+    equity_captured = arv - refi_loan_amount - purchase - rehab_cost
+    cash_left_in_deal = max(0, total_project_cost - refi_loan_amount)
+    equity_capture_pct = (equity_captured / total_project_cost * 100) if total_project_cost else 0
+
+    # Post-refi cash flow
+    refi_monthly_rate = refi_rate / 100 / 12
+    refi_payments = 360
+    if refi_monthly_rate == 0:
+        refi_mortgage = refi_loan_amount / refi_payments
+    else:
+        refi_mortgage = refi_loan_amount * (
+            refi_monthly_rate * (1 + refi_monthly_rate) ** refi_payments
+        ) / ((1 + refi_monthly_rate) ** refi_payments - 1)
+
+    vacancy_loss = base.monthly_rent * (base.vacancy_pct / 100)
+    egi = base.monthly_rent - vacancy_loss
+    tax_mo = (purchase * 0.022) / 12
+    maintenance_mo = (purchase * (base.maintenance_pct / 100)) / 12
+    capex_mo = egi * (base.capex_pct / 100)
+    total_opex = (
+        egi * (base.management_pct / 100)
+        + tax_mo
+        + base.insurance_monthly
+        + maintenance_mo
+        + capex_mo
+    )
+    noi = egi - total_opex
+    post_refi_cash_flow = noi - refi_mortgage
+    post_refi_dscr = noi / refi_mortgage if refi_mortgage else 0
+    brrrr_roe = (post_refi_cash_flow * 12 / cash_left_in_deal * 100) if cash_left_in_deal > 0 else 0
+
+    return {
+        **ltr.model_dump(),
+        "rehabCost": rehab_cost,
+        "arv": arv,
+        "arvConfidence": arv_confidence,
+        "refiLtvPct": refi_ltv_pct,
+        "refiRate": refi_rate,
+        "holdingCosts": round(holding_costs),
+        "totalProjectCost": round(total_project_cost),
+        "refiLoanAmount": round(refi_loan_amount),
+        "equityCaptured": round(equity_captured),
+        "cashLeftInDeal": round(cash_left_in_deal),
+        "equityCapturePct": round(equity_capture_pct, 1),
+        "postRefiCashFlow": round(post_refi_cash_flow, 2),
+        "postRefiDscr": round(post_refi_dscr, 2),
+        "brrrrReturnOnEquity": round(brrrr_roe, 1),
+    }
+
+
+# ── Flip Analysis ─────────────────────────────────────────────────────────────
+
+def flip_analysis(purchase_price: float, rehab_cost: float, arv: float,
+                  hold_months: int = 6, financing_rate: float = 0.12,
+                  agent_commission_pct: float = 0.055) -> dict:
+    holding_costs = (purchase_price * financing_rate / 12) * hold_months
+    financing_costs = holding_costs  # interest-only on purchase
+    closing_costs_buy = purchase_price * 0.02
+    closing_costs_sell = arv * 0.01
+
+    total_cost = purchase_price + rehab_cost + holding_costs + financing_costs + closing_costs_buy
+    gross_profit = arv - total_cost
+    agent_fees = arv * agent_commission_pct
+    net_profit = gross_profit - agent_fees - closing_costs_sell
+
+    return_on_cost = (net_profit / total_cost * 100) if total_cost else 0
+    annualized_return = return_on_cost * (12 / hold_months) if hold_months else 0
+    break_even_arv = total_cost + agent_fees + closing_costs_sell
+
+    return {
+        "purchasePrice": purchase_price,
+        "rehabCost": rehab_cost,
+        "arv": arv,
+        "holdMonths": hold_months,
+        "financingRate": financing_rate,
+        "agentCommissionPct": agent_commission_pct,
+        "holdingCosts": round(holding_costs),
+        "financingCosts": round(financing_costs),
+        "totalCost": round(total_cost),
+        "grossProfit": round(gross_profit),
+        "agentFees": round(agent_fees),
+        "netProfit": round(net_profit),
+        "returnOnCost": round(return_on_cost, 1),
+        "annualizedReturn": round(annualized_return, 1),
+        "breakEvenArv": round(break_even_arv, -2),
+    }
+
+
+# ── STR Analysis ──────────────────────────────────────────────────────────────
+
+def str_analysis(base: UnderwritingInputs,
+                 nightly_rate_low: float, nightly_rate_mid: float, nightly_rate_high: float,
+                 occupancy_low: float = 0.55, occupancy_mid: float = 0.70, occupancy_high: float = 0.82,
+                 platform_fee_pct: float = 0.03,
+                 cleaning_fee_per_stay: float = 120.0,
+                 avg_stay_nights: float = 3.5) -> dict:
+    ltr = compute_underwriting(base)
+
+    stays_per_month_low = (30 * occupancy_low) / avg_stay_nights
+    stays_per_month_mid = (30 * occupancy_mid) / avg_stay_nights
+    stays_per_month_high = (30 * occupancy_high) / avg_stay_nights
+
+    def monthly_str_revenue(rate, occ, stays):
+        gross = rate * 30 * occ
+        platform_cut = gross * platform_fee_pct
+        cleaning = stays * cleaning_fee_per_stay
+        return gross - platform_cut + cleaning
+
+    str_monthly_low = monthly_str_revenue(nightly_rate_low, occupancy_low, stays_per_month_low)
+    str_monthly_mid = monthly_str_revenue(nightly_rate_mid, occupancy_mid, stays_per_month_mid)
+    str_monthly_high = monthly_str_revenue(nightly_rate_high, occupancy_high, stays_per_month_high)
+
+    purchase = base.purchase_price
+
+    def str_cap_rate(monthly_rev: float) -> float:
+        # Reuse LTR opex but replace rent with STR revenue
+        vacancy_loss = 0  # vacancy already baked into occupancy
+        egi = monthly_rev
+        tax_mo = (purchase * 0.022) / 12
+        maintenance_mo = (purchase * (base.maintenance_pct / 100)) / 12
+        capex_mo = egi * (base.capex_pct / 100)
+        mgmt_str = egi * 0.20  # STR mgmt typically 20%
+        opex = mgmt_str + tax_mo + base.insurance_monthly * 1.3 + maintenance_mo + capex_mo
+        noi = egi - opex
+        return (noi * 12 / purchase * 100) if purchase else 0
+
+    cap_low = str_cap_rate(str_monthly_low)
+    cap_mid = str_cap_rate(str_monthly_mid)
+    cap_high = str_cap_rate(str_monthly_high)
+
+    ltr_mid = ltr.effective_gross_income
+    str_vs_ltr_premium = ((str_monthly_mid - ltr_mid) / ltr_mid * 100) if ltr_mid else 0
+
+    # Occupancy break-even (what occ rate equals LTR income)
+    if nightly_rate_mid > 0:
+        occ_break_even = ltr_mid / (nightly_rate_mid * 30) * 100
+    else:
+        occ_break_even = 100.0
+
+    return {
+        **ltr.model_dump(),
+        "nightlyRateLow": nightly_rate_low,
+        "nightlyRateMid": nightly_rate_mid,
+        "nightlyRateHigh": nightly_rate_high,
+        "occupancyLow": occupancy_low,
+        "occupancyMid": occupancy_mid,
+        "occupancyHigh": occupancy_high,
+        "platformFeePct": platform_fee_pct,
+        "strMonthlyRevenueLow": round(str_monthly_low),
+        "strMonthlyRevenueMid": round(str_monthly_mid),
+        "strMonthlyRevenueHigh": round(str_monthly_high),
+        "strAnnualRevenueLow": round(str_monthly_low * 12),
+        "strAnnualRevenueMid": round(str_monthly_mid * 12),
+        "strAnnualRevenueHigh": round(str_monthly_high * 12),
+        "strCapRateLow": round(cap_low, 2),
+        "strCapRateMid": round(cap_mid, 2),
+        "strCapRateHigh": round(cap_high, 2),
+        "strVsLtrPremium": round(str_vs_ltr_premium, 1),
+        "occupancyBreakEven": round(occ_break_even, 1),
+        "ltrMonthlyRevenue": round(ltr_mid),
+        "ltrCapRate": round(ltr.cap_rate, 2),
+    }

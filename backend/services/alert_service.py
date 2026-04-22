@@ -1,5 +1,5 @@
 """
-Email alert service using SendGrid.
+Alert service — email via SendGrid, push via Firebase Cloud Messaging.
 """
 import logging
 import httpx
@@ -112,3 +112,85 @@ async def send_saved_search_alert(
     except Exception as exc:
         log.warning("SendGrid request failed: %s", exc)
         return False
+
+
+async def send_push_notification(
+    push_token: str,
+    platform: str,
+    title: str,
+    body: str,
+    data: dict | None = None,
+) -> bool:
+    """
+    Send a Firebase Cloud Messaging push notification.
+
+    Requires FIREBASE_SERVER_KEY in backend/.env.
+    google-services.json (Android) and GoogleService-Info.plist (iOS)
+    must be added from the Firebase console before push notifications
+    will work on device.
+    """
+    settings = get_settings()
+    firebase_key = getattr(settings, "firebase_server_key", None)
+    if not firebase_key:
+        log.debug("FIREBASE_SERVER_KEY not set — push notification skipped")
+        return False
+
+    payload = {
+        "to": push_token,
+        "notification": {
+            "title": title,
+            "body": body,
+            "sound": "default",
+        },
+        "data": data or {},
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                "https://fcm.googleapis.com/fcm/send",
+                json=payload,
+                headers={
+                    "Authorization": f"key={firebase_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            if resp.status_code == 200:
+                result = resp.json()
+                if result.get("success", 0) > 0:
+                    return True
+                log.warning("FCM send failed: %s", result)
+                return False
+            log.warning("FCM HTTP %s: %s", resp.status_code, resp.text[:400])
+            return False
+    except Exception as exc:
+        log.warning("FCM request failed: %s", exc)
+        return False
+
+
+async def send_alert(
+    user_email: str | None,
+    push_token: str | None,
+    push_platform: str | None,
+    search_name: str,
+    properties: list[dict],
+) -> dict:
+    """Send alert via email and/or push — whichever channels are available."""
+    results = {"email": False, "push": False}
+
+    if user_email and properties:
+        results["email"] = await send_saved_search_alert(user_email, search_name, properties)
+
+    if push_token and properties:
+        count = len(properties)
+        title = f"STRATA: {count} new match{'es' if count != 1 else ''}"
+        body_text = f"{properties[0].get('address', 'New property')} — {search_name}"
+        results["push"] = await send_push_notification(
+            push_token=push_token,
+            platform=push_platform or "ios",
+            title=title,
+            body=body_text,
+            data={"searchName": search_name, "count": str(count)},
+        )
+
+    return results

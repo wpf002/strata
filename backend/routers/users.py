@@ -1,6 +1,8 @@
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,3 +45,22 @@ async def update_me(
         current_user.strategy_settings = body.strategy_settings
     await db.flush()
     return UserResponse.model_validate(current_user)
+
+
+# ── Push Token ────────────────────────────────────────────────────────────────
+
+class PushTokenRequest(BaseModel):
+    token: str
+    platform: Literal["ios", "android"]
+
+
+@router.put("/users/me/push-token")
+async def update_push_token(
+    body: PushTokenRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    current_user.push_token = body.token
+    current_user.push_platform = body.platform
+    await db.flush()
+    return {"ok": True}

@@ -1,12 +1,33 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Bot, Send, Sparkles, ExternalLink, AlertCircle } from 'lucide-react';
+import { Bot, Send, Sparkles, ExternalLink, AlertCircle, FileText, Download, Copy, Check, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { clsx } from 'clsx';
 import { mockProperties } from '../data/mockData';
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? '';
 
 type Message = { role: 'user' | 'assistant'; content: string };
+
+interface InvestmentMemo {
+  title: string;
+  executiveSummary: string;
+  propertyOverview: string;
+  marketContext: string;
+  financialAnalysis: string;
+  riskAssessment: string;
+  recommendation: string;
+  disclaimer: string;
+}
+
+const MEMO_SECTIONS: { key: keyof InvestmentMemo; label: string }[] = [
+  { key: 'executiveSummary', label: 'Executive Summary' },
+  { key: 'propertyOverview', label: 'Property Overview' },
+  { key: 'marketContext', label: 'Market Context' },
+  { key: 'financialAnalysis', label: 'Financial Analysis' },
+  { key: 'riskAssessment', label: 'Risk Assessment' },
+  { key: 'recommendation', label: 'Recommendation' },
+  { key: 'disclaimer', label: 'Disclaimer' },
+];
 
 const SUGGESTIONS = [
   'What are the 5 best cash flow deals in Dallas right now?',
@@ -17,6 +38,94 @@ const SUGGESTIONS = [
   'Which of my portfolio properties should I refinance?',
 ];
 
+function MemoSection({ label, content }: { label: string; content: string }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="border border-white/8 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-white/3 hover:bg-white/5 transition-colors"
+      >
+        <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">{label}</span>
+        {open ? <ChevronUp size={13} className="text-slate-500" /> : <ChevronDown size={13} className="text-slate-500" />}
+      </button>
+      {open && (
+        <div className="px-4 py-3">
+          <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-line">{content}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MemoPanel({
+  memo,
+  propertyAddress,
+  onClose,
+}: {
+  memo: InvestmentMemo;
+  propertyAddress: string;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const memoText = MEMO_SECTIONS.map(s => `## ${s.label}\n\n${memo[s.key]}`).join('\n\n---\n\n');
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(`# ${memo.title}\n\n${memoText}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handlePrint = () => window.print();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm print:relative print:inset-auto print:bg-transparent print:p-0">
+      <div className="w-full max-w-2xl max-h-[90vh] flex flex-col glass rounded-2xl border border-white/10 shadow-2xl print:shadow-none print:max-h-none print:overflow-visible">
+        {/* Header */}
+        <div className="flex items-start justify-between px-6 py-4 border-b border-white/8 flex-shrink-0 print:hidden">
+          <div>
+            <h2 className="text-base font-semibold text-white">{memo.title}</h2>
+            <p className="text-xs text-slate-500 mt-0.5">{propertyAddress} · Investment Memo</p>
+          </div>
+          <div className="flex items-center gap-2 ml-4">
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-xs text-slate-400 hover:text-white hover:border-white/20 transition-colors"
+            >
+              {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+            <button
+              onClick={handlePrint}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-xs text-amber-400 hover:bg-amber-500/25 transition-colors"
+            >
+              <Download size={12} />
+              PDF
+            </button>
+            <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/8 transition-colors">
+              <X size={15} />
+            </button>
+          </div>
+        </div>
+
+        {/* Print-only header */}
+        <div className="hidden print:block p-8">
+          <h1 style={{ fontFamily: 'Georgia, serif', fontSize: '22px', fontWeight: 700, marginBottom: 4 }}>{memo.title}</h1>
+          <p style={{ fontSize: '12px', color: '#64748b' }}>{propertyAddress} · Generated by STRATA</p>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 print:overflow-visible print:px-8">
+          {MEMO_SECTIONS.map(s => (
+            <MemoSection key={s.key} label={s.label} content={memo[s.key]} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CopilotPage() {
   const [searchParams] = useSearchParams();
   const propertyId = searchParams.get('property');
@@ -26,10 +135,37 @@ export default function CopilotPage() {
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
+
+  const [memo, setMemo] = useState<InvestmentMemo | null>(null);
+  const [memoLoading, setMemoLoading] = useState(false);
+  const [memoError, setMemoError] = useState<string | null>(null);
+  const [showMemo, setShowMemo] = useState(false);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isStreaming]);
+
+  const generateMemo = useCallback(async () => {
+    if (!propertyId || memoLoading) return;
+    setMemoError(null);
+    setMemoLoading(true);
+    try {
+      const res = await fetch(`${BASE_URL}/copilot/generate-memo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ property_id: propertyId }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data: InvestmentMemo = await res.json();
+      setMemo(data);
+      setShowMemo(true);
+    } catch {
+      setMemoError('Memo generation failed. Check that the backend and Claude API key are configured.');
+    } finally {
+      setMemoLoading(false);
+    }
+  }, [propertyId, memoLoading]);
 
   const send = async (text: string) => {
     if (!text.trim() || isStreaming) return;
@@ -112,6 +248,15 @@ export default function CopilotPage() {
 
   return (
     <div className="flex flex-col h-full page-fade">
+      {/* Memo modal */}
+      {showMemo && memo && contextProperty && (
+        <MemoPanel
+          memo={memo}
+          propertyAddress={`${contextProperty.address}, ${contextProperty.city}`}
+          onClose={() => setShowMemo(false)}
+        />
+      )}
+
       {/* Header */}
       <div className="px-6 py-4 border-b border-white/5 flex items-center gap-3 flex-shrink-0">
         <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center">
@@ -132,16 +277,44 @@ export default function CopilotPage() {
           <div className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
           <span className="text-xs text-amber-400 font-semibold">Analyzing:</span>
           <span className="text-xs text-slate-300">{contextProperty.address}, {contextProperty.city}</span>
-          <Link
-            to={`/intelligence/${contextProperty.id}`}
-            className="ml-auto flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 transition-colors"
-          >
-            View Intelligence <ExternalLink size={11} />
-          </Link>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={memo ? () => setShowMemo(true) : generateMemo}
+              disabled={memoLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-xs text-amber-400 hover:bg-amber-500/25 disabled:opacity-50 transition-colors"
+            >
+              {memoLoading ? (
+                <>
+                  <div className="w-3 h-3 border border-amber-400 border-t-transparent rounded-full animate-spin" />
+                  Generating…
+                </>
+              ) : (
+                <>
+                  <FileText size={12} />
+                  {memo ? 'View Memo' : 'Generate Investment Memo'}
+                </>
+              )}
+            </button>
+            <Link
+              to={`/intelligence/${contextProperty.id}`}
+              className="flex items-center gap-1 text-xs text-slate-500 hover:text-amber-400 transition-colors"
+            >
+              View Intelligence <ExternalLink size={11} />
+            </Link>
+          </div>
         </div>
       )}
 
-      {/* Error */}
+      {/* Memo error */}
+      {memoError && (
+        <div className="px-6 py-2 border-b border-red-500/20 bg-red-500/5 flex items-center gap-2 flex-shrink-0">
+          <AlertCircle size={13} className="text-red-400 flex-shrink-0" />
+          <span className="text-xs text-red-400">{memoError}</span>
+          <button onClick={() => setMemoError(null)} className="ml-auto text-xs text-red-400 hover:text-red-300"><X size={12} /></button>
+        </div>
+      )}
+
+      {/* Stream error */}
       {streamError && (
         <div className="px-6 py-2 border-b border-red-500/20 bg-red-500/5 flex items-center gap-2 flex-shrink-0">
           <AlertCircle size={13} className="text-red-400" />

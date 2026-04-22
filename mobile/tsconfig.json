@@ -1,7 +1,18 @@
 {
-  "extends": "@react-native/typescript-config/tsconfig.json",
   "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020"],
+    "jsx": "react-native",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "ignoreDeprecations": "5.0",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
     "strict": true,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]

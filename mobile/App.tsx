@@ -1,34 +1,112 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, StatusBar } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, SafeAreaView, Platform } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 
 import { supabase } from './src/supabase';
 import { setUnauthorizedHandler } from './src/api';
+import { setupPushNotifications } from './src/services/notifications';
 import LoginScreen from './src/screens/LoginScreen';
 import SearchScreen from './src/screens/SearchScreen';
-import type { MobileProperty } from './src/api';
+import IntelligenceScreen from './src/screens/IntelligenceScreen';
+import PortfolioScreen from './src/screens/PortfolioScreen';
+import type { MobileProperty, PortfolioEntry } from './src/api';
 
-type Screen = 'search';
+type Tab = 'search' | 'portfolio' | 'copilot';
+
+function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
+  const tabs: { id: Tab; label: string; icon: string }[] = [
+    { id: 'search', label: 'Search', icon: '⌕' },
+    { id: 'portfolio', label: 'Portfolio', icon: '◫' },
+    { id: 'copilot', label: 'Copilot', icon: '✦' },
+  ];
+
+  return (
+    <View style={tabStyles.bar}>
+      {tabs.map(t => (
+        <TouchableOpacity
+          key={t.id}
+          style={tabStyles.tab}
+          onPress={() => onChange(t.id)}
+          activeOpacity={0.7}
+        >
+          <Text style={[tabStyles.icon, active === t.id && tabStyles.iconActive]}>{t.icon}</Text>
+          <Text style={[tabStyles.label, active === t.id && tabStyles.labelActive]}>{t.label}</Text>
+          {active === t.id && <View style={tabStyles.indicator} />}
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
+const tabStyles = StyleSheet.create({
+  bar: {
+    flexDirection: 'row',
+    backgroundColor: '#0d1b2e',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+    paddingBottom: Platform.OS === 'ios' ? 20 : 4,
+  },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 6,
+    position: 'relative',
+  },
+  icon: { fontSize: 18, color: '#475569', marginBottom: 2 },
+  iconActive: { color: '#C9A84C' },
+  label: { fontSize: 10, color: '#475569', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+  labelActive: { color: '#C9A84C' },
+  indicator: {
+    position: 'absolute',
+    top: 0,
+    left: '25%' as any,
+    right: '25%' as any,
+    height: 2,
+    backgroundColor: '#C9A84C',
+    borderRadius: 1,
+  },
+});
+
+function CopilotPlaceholder() {
+  return (
+    <View style={placeholderStyles.container}>
+      <Text style={placeholderStyles.icon}>✦</Text>
+      <Text style={placeholderStyles.title}>STRATA Copilot</Text>
+      <Text style={placeholderStyles.sub}>
+        AI-powered deal analysis and market intelligence.{'\n'}
+        Available in the web app at strata.app
+      </Text>
+    </View>
+  );
+}
+
+const placeholderStyles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#080f1a', alignItems: 'center', justifyContent: 'center', padding: 32 },
+  icon: { fontSize: 40, color: '#C9A84C', marginBottom: 16 },
+  title: { fontSize: 20, fontWeight: '800', color: '#f1f5f9', marginBottom: 8 },
+  sub: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 22 },
+});
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [bootstrapping, setBootstrapping] = useState(true);
-  const [_screen, setScreen] = useState<Screen>('search');
-  const [_selectedProperty, setSelectedProperty] = useState<MobileProperty | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>('search');
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Restore persisted session
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setBootstrapping(false);
     });
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
+      if (s) {
+        setupPushNotifications().catch(() => {});
+      }
     });
 
-    // Redirect to login on 401
     setUnauthorizedHandler(() => {
       supabase.auth.signOut();
     });
@@ -49,22 +127,53 @@ export default function App() {
     );
   }
 
+  const handlePropertyPress = (p: MobileProperty) => {
+    setSelectedPropertyId(p.id);
+  };
+
+  const handlePortfolioPropertyPress = (_e: PortfolioEntry) => {
+    // Navigate to intelligence view for portfolio property
+    if (_e.propertyId) setSelectedPropertyId(_e.propertyId);
+  };
+
+  if (selectedPropertyId) {
+    return (
+      <>
+        <StatusBar barStyle="light-content" backgroundColor="#0d1b2e" />
+        <SafeAreaView style={styles.safeArea}>
+          <IntelligenceScreen
+            propertyId={selectedPropertyId}
+            onBack={() => setSelectedPropertyId(null)}
+          />
+        </SafeAreaView>
+      </>
+    );
+  }
+
   return (
     <>
       <StatusBar barStyle="light-content" backgroundColor="#0d1b2e" />
-      <View style={styles.container}>
-        <SearchScreen
-          onPropertyPress={p => {
-            setSelectedProperty(p);
-            setScreen('search');
-          }}
-        />
-      </View>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.container}>
+          <View style={styles.screen}>
+            {activeTab === 'search' && (
+              <SearchScreen onPropertyPress={handlePropertyPress} />
+            )}
+            {activeTab === 'portfolio' && (
+              <PortfolioScreen onPropertyPress={handlePortfolioPropertyPress} />
+            )}
+            {activeTab === 'copilot' && <CopilotPlaceholder />}
+          </View>
+          <TabBar active={activeTab} onChange={setActiveTab} />
+        </View>
+      </SafeAreaView>
     </>
   );
 }
 
 const styles = StyleSheet.create({
   loading: { flex: 1, backgroundColor: '#080f1a' },
+  safeArea: { flex: 1, backgroundColor: '#080f1a' },
   container: { flex: 1, backgroundColor: '#080f1a' },
+  screen: { flex: 1 },
 });

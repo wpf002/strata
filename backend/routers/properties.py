@@ -1,9 +1,11 @@
 import asyncio
 import uuid as _uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from pydantic import BaseModel
 
 from ..auth import get_optional_user
 from ..database import get_db
@@ -111,6 +113,246 @@ async def get_risk(
 
     return risk
 
+
+# ── Offer Analysis ────────────────────────────────────────────────────────────
+
+class OfferAnalysisRequest(BaseModel):
+    list_price: float
+    down_payment_pct: float = 25.0
+    strategy: str = "Long-Term Rental"
+    urgency: Literal["low", "medium", "high"] = "medium"
+
+
+@router.post("/{property_id}/offer-analysis")
+async def offer_analysis(
+    property_id: str,
+    body: OfferAnalysisRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User | None = _OptUser,
+):
+    prop = await _load_or_mock_property(db, property_id)
+
+    mock = next((p for p in property_service.MOCK_PROPERTIES if p["id"] == property_id), None)
+    days_on_market: int = mock.get("days_on_market", 30) if mock else 30
+    market_regime: str = mock.get("market_regime", "Balanced") if mock else "Balanced"
+    has_price_reduction: bool = mock.get("has_price_reduction", False) if mock else False
+
+    # AVM fair value mid
+    fair_value_low = (mock or {}).get("fair_value_low", body.list_price * 0.97)
+    fair_value_high = (mock or {}).get("fair_value_high", body.list_price * 1.03)
+    base = (fair_value_low + fair_value_high) / 2
+
+    # DOM adjustment
+    if days_on_market > 90:
+        base *= 0.95
+    elif days_on_market > 60:
+        base *= 0.97
+    elif days_on_market < 14:
+        base *= 1.01
+
+    # Price reduction signal
+    if has_price_reduction:
+        base *= 0.98
+
+    # Market regime
+    if market_regime == "Hot":
+        base *= 1.02
+    elif market_regime == "Buyer's Market":
+        base *= 0.96
+
+    # Urgency adjustment to recommended offer
+    urgency_adj = {"low": 0.97, "medium": 0.97, "high": 0.99}[body.urgency]
+
+    offer_low = base * 0.94
+    offer_mid = base * 0.97
+    offer_high = base * 1.00
+    recommended_offer = offer_mid * urgency_adj if body.urgency != "high" else offer_high
+
+    # Acceptance probability
+    spread = (body.list_price - recommended_offer) / body.list_price
+    if spread <= 0.01:
+        probability = 0.85
+    elif spread <= 0.03:
+        probability = 0.72
+    elif spread <= 0.06:
+        probability = 0.55
+    elif spread <= 0.10:
+        probability = 0.38
+    else:
+        probability = 0.20
+
+    list_to_sale_ratio = 0.972  # Dallas market baseline
+    comparable_sales_used = mock.get("comp_count", 9) if mock else 9
+
+    negotiation_notes = _build_negotiation_notes(
+        days_on_market=days_on_market,
+        market_regime=market_regime,
+        has_price_reduction=has_price_reduction,
+        list_price=body.list_price,
+        recommended=recommended_offer,
+        urgency=body.urgency,
+    )
+
+    strategy_notes = _build_strategy_notes(body.strategy, body.urgency, days_on_market)
+
+    return {
+        "offerLow": round(offer_low, -2),
+        "offerMid": round(offer_mid, -2),
+        "offerHigh": round(offer_high, -2),
+        "recommendedOffer": round(recommended_offer, -2),
+        "acceptanceProbability": round(probability, 2),
+        "negotiationNotes": negotiation_notes,
+        "comparableSalesUsed": comparable_sales_used,
+        "daysOnMarket": days_on_market,
+        "listToSaleRatio": list_to_sale_ratio,
+        "strategyNotes": strategy_notes,
+    }
+
+
+def _build_negotiation_notes(
+    days_on_market: int,
+    market_regime: str,
+    has_price_reduction: bool,
+    list_price: float,
+    recommended: float,
+    urgency: str,
+) -> str:
+    parts = []
+    if days_on_market > 60:
+        parts.append(f"Property has been on market {days_on_market} days — seller may be motivated.")
+    if has_price_reduction:
+        parts.append("A prior price reduction signals flexibility.")
+    if market_regime == "Buyer's Market":
+        parts.append("Buyer's market conditions favor a below-ask offer.")
+    elif market_regime == "Hot":
+        parts.append("Competitive market — expect multiple offers; come in strong.")
+    gap = list_price - recommended
+    if gap > 0:
+        parts.append(f"Recommended offer is ${gap:,.0f} below list price.")
+    if urgency == "high":
+        parts.append("High urgency: minimize contingencies and shorten inspection window.")
+    return " ".join(parts) or "Market is balanced — offer at STRATA fair value estimate."
+
+
+def _build_strategy_notes(strategy: str, urgency: str, dom: int) -> str:
+    if strategy in ("BRRRR", "Fix & Flip"):
+        return "Leave negotiation room for rehab costs — target list-10% or better."
+    if strategy == "Short-Term Rental":
+        return "STR revenue potential may support paying closer to list if occupancy projections are strong."
+    return "For LTR at this market, bid near fair value mid-point and request seller concessions on closing costs."
+
+
+# ── Closing Costs ─────────────────────────────────────────────────────────────
+
+STATE_TRANSFER_TAX = {
+    "TX": 0.0,
+    "FL": 0.007,
+    "TN": 0.0037,
+    "AZ": 0.0,
+    "GA": 0.001,
+    "SC": 0.004,
+    "NC": 0.002,
+    "CO": 0.001,
+    "CA": 0.0011,
+    "NY": 0.004,
+}
+
+ATTORNEY_REQUIRED_STATES = {"GA", "SC", "MA", "NY", "CT", "VT", "DE", "KY"}
+
+
+class ClosingCostsRequest(BaseModel):
+    purchase_price: float
+    loan_amount: float
+    state: str = "TX"
+    is_first_time_buyer: bool = False
+    loan_type: str = "30yr Fixed"
+
+
+@router.post("/{property_id}/closing-costs")
+async def closing_costs(
+    property_id: str,
+    body: ClosingCostsRequest,
+    _: User | None = _OptUser,
+):
+    state = body.state.upper()
+    loan = body.loan_amount
+    price = body.purchase_price
+    down = price - loan
+
+    # Get current rate estimate (simple approximation)
+    rate = 0.0725
+    prepaid_days = 7
+    prepaid_interest = (loan * rate / 365) * prepaid_days
+
+    items = []
+
+    def add(name, amount, item_type, required, notes=""):
+        items.append({
+            "name": name,
+            "amount": round(amount, 2),
+            "type": item_type,
+            "required": required,
+            "notes": notes,
+        })
+
+    # Loan origination (0.5-1%)
+    origination = loan * 0.0075
+    add("Loan Origination Fee", origination, "lender", True, "Typically 0.5–1% of loan amount")
+
+    # Appraisal
+    add("Appraisal Fee", 650, "lender", True, "Lender-required independent valuation")
+
+    # Home inspection
+    add("Home Inspection", 500, "buyer", True, "Recommended — price varies by size")
+
+    # Title insurance — lender
+    lender_title = max(500, loan * 0.002)
+    add("Title Insurance (Lender's Policy)", min(lender_title, 900), "lender", True, "Protects lender against title defects")
+
+    # Title insurance — owner
+    owner_title = max(800, price * 0.0025)
+    add("Title Insurance (Owner's Policy)", min(owner_title, 1400), "buyer", False, "Strongly recommended — one-time fee")
+
+    # Recording fees
+    add("Recording Fees", 175, "govt", True, "County recording of deed and mortgage")
+
+    # Transfer tax
+    transfer_rate = STATE_TRANSFER_TAX.get(state, 0.001)
+    if transfer_rate > 0:
+        add("Transfer Tax", price * transfer_rate, "govt", True, f"{state} state transfer tax rate: {transfer_rate*100:.3f}%")
+
+    # Prepaid interest
+    add("Prepaid Interest (7 days)", round(prepaid_interest), "lender", True, "Interest from closing to first payment")
+
+    # Property tax escrow (2 months)
+    tax_monthly = (price * 0.022) / 12
+    add("Property Tax Escrow (2 months)", round(tax_monthly * 2), "lender", True, "Initial escrow reserve")
+
+    # Insurance escrow (2 months)
+    add("Homeowners Insurance Escrow (2 months)", 280, "lender", True, "Based on est. $140/mo premium")
+
+    # Attorney fee (required in some states)
+    if state in ATTORNEY_REQUIRED_STATES:
+        add("Attorney Fee", 850, "buyer", True, f"Required in {state}")
+
+    # Survey
+    add("Survey", 550, "buyer", False, "Recommended for properties on large lots")
+
+    total_buyer = sum(i["amount"] for i in items if i["type"] in ("buyer", "lender", "govt"))
+    total_cash_to_close = down + total_buyer
+    range_low = total_buyer * 0.85
+    range_high = total_buyer * 1.15
+
+    return {
+        "items": items,
+        "totalBuyerCosts": round(total_buyer),
+        "totalCashToClose": round(total_cash_to_close),
+        "rangeLow": round(range_low),
+        "rangeHigh": round(range_high),
+    }
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 async def _get_valuation_for_id(db: AsyncSession, property_id: str) -> ValuationResponse:
     prop = await _load_or_mock_property(db, property_id)

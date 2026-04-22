@@ -142,7 +142,66 @@
 
 ---
 
-## Test Status (April 2026)
+## Sprint 4 — April 2026
+
+### Completed
+
+#### Task 1 — Client Activity Feed
+
+- `client_activity` DB table via Alembic migration `003_client_activity.py`
+- `ClientActivity` model: client_id, property_id, activity_type, count, last_occurred_at, activity_metadata
+- `POST /clients/{id}/activity`: upsert by (client_id, property_id, activity_type), increments count
+- `GET /clients/{id}/activity`: returns properties with engagement score (viewed×1 + saved×3 + shared×4 + underwritten×5)
+- `ClientsPage.tsx`: Activity Feed tab on right panel shows property rows with icon badges and counts
+- Roster cards show activity dot (green ≤7d, amber ≤30d, gray), "Active Xd ago", property count
+- "Share with Client" copies link with `?client={id}` and fires a "shared" activity event
+
+#### Task 2 — Offer Engine
+
+- `POST /properties/{id}/offer-analysis`: DOM/regime/price-reduction adjustments to AVM base
+- Acceptance probability curve, urgency selector (low/medium/high)
+- Returns offerLow, offerMid, offerHigh, recommendedOffer, acceptanceProbability, negotiationNotes
+- `IntelligencePage.tsx`: "Offer Strategy" tab with offer range bar, acceptance gauge, strategy notes
+
+#### Task 3 — Closing Cost Estimator
+
+- `POST /properties/{id}/closing-costs`: itemized buyer/lender/govt costs with state-specific transfer tax
+- Attorney-required states (NY, MA, SC, GA, WV) included
+- `UnderwritePage.tsx`: collapsible Closing Costs section with type badges and ±15% range note
+
+#### Task 4 — Investment Memo PDF
+
+- `POST /copilot/generate-memo`: fetches property, calls Claude with structured JSON prompt
+- Returns: title, executiveSummary, propertyOverview, marketContext, financialAnalysis, riskAssessment, recommendation, disclaimer
+- `CopilotPage.tsx`: "Generate Investment Memo" button in property context banner
+- Memo panel: expandable sections, Copy to Clipboard, Print/PDF via `window.print()`
+
+#### Task 5 — Strategy Modes (BRRRR / Flip / STR)
+
+- `POST /underwriting/brrrr`: totalProjectCost, refiLoanAmount, cashLeftInDeal, equityCaptured, postRefiCashFlow, postRefiDscr, brrrrReturnOnEquity, arvConfidence
+- `POST /underwriting/flip`: totalCost, grossProfit, netProfit, returnOnCost, annualizedReturn, breakEvenArv
+- `POST /underwriting/str`: revenue low/mid/high, STR cap rates, strVsLtrPremium, occupancyBreakEven
+- `UnderwritePage.tsx`: BRRRR/Flip/STR panels with sliders render when strategy is selected; Metric cards update live
+
+#### Task 6 — Mobile Intelligence + Portfolio Screens
+
+- `mobile/src/screens/IntelligenceScreen.tsx`: property detail with deal score badge, key metrics grid, annual financials, score breakdown bars
+- `mobile/src/screens/PortfolioScreen.tsx`: summary cards (equity, cash flow, portfolio value, avg CoC), holdings list with appreciation
+- `mobile/App.tsx`: custom bottom tab bar — Search | Portfolio | Copilot placeholder
+- Push token registered with backend on session start via `setupPushNotifications()`
+
+#### Task 7 — Mobile Push Alerts
+
+- `mobile/src/services/notifications.ts`: FCM token registration via `@react-native-firebase/messaging`
+- Graceful degradation when package not installed (bare RN setup)
+- Token registered at `PUT /users/me/push-token` on login and on token refresh
+- `backend/services/alert_service.py`: `send_push_notification()` via FCM REST API; `send_alert()` dispatches both email and push
+- Migration `004_push_tokens.py`: adds push_token and push_platform columns to users table
+
+---
+
+## Current Test Status
+
 - Frontend: **75 tests passing** (Vitest)
 - Backend: **30 tests passing** (pytest)
 - TypeScript: **0 errors** (`tsc --noEmit`)

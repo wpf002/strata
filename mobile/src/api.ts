@@ -116,3 +116,57 @@ export async function getProperty(id: string): Promise<MobileProperty | null> {
     image: p.image ?? null, lat: p.lat ?? null, lng: p.lng ?? null,
   };
 }
+
+// ── Portfolio ─────────────────────────────────────────────────────────────────
+
+export interface PortfolioEntry {
+  id: string;
+  propertyId: string;
+  address: string;
+  city: string;
+  state: string;
+  purchasePrice: number;
+  currentValue: number;
+  monthlyRent: number;
+  monthlyExpenses: number;
+  equity: number;
+  cashFlow: number;
+  capRate: number;
+  cocReturn: number;
+  acquisitionDate: string | null;
+  strategy: string | null;
+}
+
+const MOCK_PORTFOLIO: PortfolioEntry[] = [
+  { id: 'port1', propertyId: 'p1', address: '4521 Oak Creek Drive', city: 'Dallas', state: 'TX', purchasePrice: 310000, currentValue: 342000, monthlyRent: 2400, monthlyExpenses: 2088, equity: 72000, cashFlow: 312, capRate: 6.4, cocReturn: 8.2, acquisitionDate: '2023-06-15', strategy: 'Long-Term Rental' },
+  { id: 'port2', propertyId: 'p2', address: '1872 Magnolia Street', city: 'Dallas', state: 'TX', purchasePrice: 265000, currentValue: 285000, monthlyRent: 2100, monthlyExpenses: 1902, equity: 58000, cashFlow: 198, capRate: 5.8, cocReturn: 7.1, acquisitionDate: '2022-11-03', strategy: 'Long-Term Rental' },
+];
+
+export async function getPortfolio(): Promise<PortfolioEntry[]> {
+  if (USE_MOCK) return MOCK_PORTFOLIO;
+  const data = await request<any[]>('/portfolio');
+  return data.map(e => ({
+    id: e.id,
+    propertyId: e.propertyId ?? e.property_id ?? '',
+    address: e.address ?? '',
+    city: e.city ?? '',
+    state: e.state ?? '',
+    purchasePrice: e.purchasePrice ?? e.purchase_price ?? 0,
+    currentValue: e.currentValue ?? e.current_value ?? 0,
+    monthlyRent: e.monthlyRent ?? e.monthly_rent ?? 0,
+    monthlyExpenses: e.monthlyExpenses ?? e.monthly_expenses ?? 0,
+    equity: e.equity ?? 0,
+    cashFlow: e.cashFlow ?? e.cash_flow ?? 0,
+    capRate: e.capRate ?? e.cap_rate ?? 0,
+    cocReturn: e.cocReturn ?? e.coc_return ?? 0,
+    acquisitionDate: e.acquisitionDate ?? e.acquisition_date ?? null,
+    strategy: e.strategy ?? null,
+  }));
+}
+
+export async function registerPushToken(token: string, platform: 'ios' | 'android'): Promise<void> {
+  await request('/users/me/push-token', {
+    method: 'PUT',
+    body: JSON.stringify({ token, platform }),
+  });
+}
