@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Plus, ArrowUpRight, RefreshCw, AlertCircle, DollarSign, Building2, TrendingUp, X, Home } from 'lucide-react';
-import { getPortfolio, createHolding, updateHolding } from '../api/client';
+import { Plus, ArrowUpRight, RefreshCw, AlertCircle, DollarSign, Building2, TrendingUp, X, Home, Trash2 } from 'lucide-react';
+import { getPortfolio, createHolding, updateHolding, deleteHolding } from '../api/client';
 import type { Portfolio, PortfolioHolding } from '../types';
 import { StatCard, MetricRow, ProgressBar, fmt } from '../components/UI';
 import { clsx } from 'clsx';
@@ -111,6 +111,7 @@ export default function PortfolioPage() {
   const [activeId, setActiveId] = useState<string>('ph1');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingHolding, setEditingHolding] = useState<PortfolioHolding | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const load = async () => {
@@ -146,6 +147,9 @@ export default function PortfolioPage() {
   const handleUpdate = async (form: HoldingFormData) => {
     if (!editingHolding) return;
     await updateHolding(editingHolding.id, {
+      address: form.address || undefined,
+      purchase_price: Number(form.purchasePrice) || undefined,
+      purchase_date: form.purchaseDate || undefined,
       loan_balance: Number(form.loanBalance) || undefined,
       monthly_rent: Number(form.monthlyRent) || undefined,
       monthly_expenses: Number(form.monthlyExpenses) || undefined,
@@ -153,6 +157,17 @@ export default function PortfolioPage() {
     });
     await load();
     showToast('Property updated!');
+  };
+
+  const handleDelete = async (id: string) => {
+    await deleteHolding(id);
+    setConfirmDeleteId(null);
+    if (activeId === id && portfolio) {
+      const remaining = portfolio.holdings.filter(h => h.id !== id);
+      setActiveId(remaining[0]?.id ?? '');
+    }
+    await load();
+    showToast('Property removed from portfolio.');
   };
 
   if (!portfolio) {
@@ -211,11 +226,23 @@ export default function PortfolioPage() {
             loanBalance: String(editingHolding.loanBalance),
             monthlyRent: String(editingHolding.monthlyRent),
             monthlyExpenses: String(editingHolding.monthlyExpenses),
-            notes: '',
+            notes: editingHolding.recommendationNote ?? '',
           }}
           onClose={() => setEditingHolding(null)}
           onSave={handleUpdate}
         />
+      )}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="glass rounded-2xl p-6 w-full max-w-sm mx-4">
+            <h3 className="text-base font-semibold text-white mb-2">Remove property?</h3>
+            <p className="text-sm text-slate-400 mb-5">This will permanently remove the property from your portfolio. This action cannot be undone.</p>
+            <div className="flex gap-2">
+              <button className="btn-ghost flex-1 justify-center text-sm" onClick={() => setConfirmDeleteId(null)}>Cancel</button>
+              <button className="flex-1 justify-center text-sm px-4 py-2 rounded-xl bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 transition-colors font-medium" onClick={() => handleDelete(confirmDeleteId)}>Remove</button>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">
@@ -252,8 +279,12 @@ export default function PortfolioPage() {
                     <p className="text-xs text-slate-500 truncate">{h.address.split(',').slice(1).join(',').trim()}</p>
                     <div className="flex items-center gap-3 mt-2">
                       <div><p className="text-[10px] text-slate-500">Equity</p><p className="text-sm font-bold font-mono text-white">{fmt.compact(h.equity)}</p></div>
-                      <div><p className="text-[10px] text-slate-500">Cash Flow</p><p className="text-sm font-bold font-mono text-emerald-400">+{fmt.currency(h.cashFlow)}</p></div>
-                      <div className="ml-auto"><RecBadge rec={h.recommendation} /></div>
+                      <div><p className="text-[10px] text-slate-500">Cash Flow</p><p className={clsx('text-sm font-bold font-mono', h.cashFlow >= 0 ? 'text-emerald-400' : 'text-red-400')}>{h.cashFlow >= 0 ? '+' : ''}{fmt.currency(h.cashFlow)}</p></div>
+                      <div className="ml-auto flex items-center gap-1">
+                        <RecBadge rec={h.recommendation} />
+                        <button onClick={e => { e.stopPropagation(); setEditingHolding(h); }} className="p-1 text-slate-500 hover:text-amber-400 transition-colors" aria-label="Edit actuals"><Building2 size={12} /></button>
+                        <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(h.id); }} className="p-1 text-slate-500 hover:text-red-400 transition-colors" title="Remove"><Trash2 size={12} /></button>
+                      </div>
                     </div>
                   </div>
                 </div>

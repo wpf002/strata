@@ -20,3 +20,16 @@ class MarketDataResponse(CamelModel):
     vacancy_rate: float
     new_listings: int
     absorption: float
+
+
+class MarketSummaryItem(CamelModel):
+    city: str
+    state: str
+    regime: Literal["Hot", "Balanced", "Cooling", "Buyer's Market"]
+    median_price: float
+    price_change_12mo: float
+    inventory_months: float
+    days_on_market: float
+    cap_rate_median: float
+    rent_growth_12mo: float
+    vacancy_rate: float

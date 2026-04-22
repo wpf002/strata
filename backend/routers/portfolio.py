@@ -153,7 +153,43 @@ def _to_schema(h: PortfolioHolding) -> HoldingResponse:
 def _health_score(holdings: list[HoldingResponse]) -> float:
     if not holdings:
         return 0.0
-    positive_cf = sum(1 for h in holdings if (h.cash_flow or 0) > 0)
-    cf_ratio = positive_cf / len(holdings)
-    avg_appreciation = sum(h.appreciation or 0 for h in holdings) / len(holdings)
-    return round(min(100, (cf_ratio * 50) + min(30, avg_appreciation * 1.5) + 20), 1)
+
+    # Up to 40 pts: positive cash flow across portfolio
+    positive = sum(1 for h in holdings if (h.cash_flow or 0) > 0)
+    cf_pts = (positive / len(holdings)) * 40
+
+    # Up to 20 pts: geographic diversity — penalize >50% concentration in one state
+    from collections import Counter
+    def _state(addr: str) -> str:
+        parts = [p.strip() for p in addr.split(",")]
+        for part in reversed(parts):
+            tokens = part.split()
+            for tok in tokens:
+                if len(tok) == 2 and tok.isupper():
+                    return tok
+        return "Unknown"
+
+    state_counts = Counter(_state(h.address) for h in holdings)
+    max_pct = max(state_counts.values()) / len(holdings)
+    if max_pct <= 0.50:
+        geo_pts = 20.0
+    else:
+        geo_pts = max(0.0, 20.0 * (1 - (max_pct - 0.50) * 4))
+
+    # Up to 20 pts: average LTV below 75%
+    ltv_values = []
+    for h in holdings:
+        cv = h.current_value or 0
+        lb = h.loan_balance or 0
+        if cv > 0:
+            ltv_values.append(lb / cv)
+    if ltv_values:
+        avg_ltv = sum(ltv_values) / len(ltv_values)
+        ltv_pts = 20.0 if avg_ltv <= 0.75 else max(0.0, 20.0 * (1 - (avg_ltv - 0.75) * 4))
+    else:
+        ltv_pts = 10.0
+
+    # Up to 20 pts: 3+ properties
+    size_pts = min(20.0, (len(holdings) / 3) * 20.0)
+
+    return round(min(100.0, cf_pts + geo_pts + ltv_pts + size_pts), 1)

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { Search, Map, List, TrendingUp, SlidersHorizontal, Star, Bell, X, BookmarkCheck, Eye } from 'lucide-react';
 import { getProperties, getSavedSearches, createSavedSearch, getWatchlists, createWatchlist, addToWatchlist, removeFromWatchlist } from '../api/client';
 import type { Property, SearchFilters } from '../types';
@@ -13,13 +13,16 @@ const STRATEGIES = ['LTR', 'STR', 'BRRRR', 'Flip', 'House Hack'];
 
 export default function SearchPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const urlQuery = new URLSearchParams(location.search).get('q');
+
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [view, setView] = useState<'list' | 'map'>('list');
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Partial<SearchFilters>>({
-    query: 'Dallas, TX',
+    query: urlQuery ?? 'Dallas, TX',
     minDealScore: 0,
     maxPrice: 600000,
     sortBy: 'Deal Score',

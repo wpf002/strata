@@ -6,18 +6,11 @@ import UnderwritePage from './pages/UnderwritePage';
 import PortfolioPage from './pages/PortfolioPage';
 import CopilotPage from './pages/CopilotPage';
 import LoginPage from './pages/LoginPage';
+import MarketPulsePage from './pages/MarketPulsePage';
+import ClientsPage from './pages/ClientsPage';
+import LenderPage from './pages/LenderPage';
+import SettingsPage from './pages/SettingsPage';
 import { useAuth } from './contexts/AuthContext';
-
-function Placeholder({ title, sub }: { title: string; sub: string }) {
-  return (
-    <div className="flex items-center justify-center h-full">
-      <div className="text-center">
-        <h2 className="text-xl font-semibold text-white mb-2">{title}</h2>
-        <p className="text-slate-500 text-sm">{sub}</p>
-      </div>
-    </div>
-  );
-}
 
 export default function App() {
   const { session, loading } = useAuth();
@@ -46,10 +39,10 @@ export default function App() {
             <Route path="/underwrite" element={<UnderwritePage />} />
             <Route path="/portfolio" element={<PortfolioPage />} />
             <Route path="/copilot" element={<CopilotPage />} />
-            <Route path="/market" element={<Placeholder title="Market Pulse" sub="City, zip, and MSA dashboards — next sprint." />} />
-            <Route path="/teams" element={<Placeholder title="STRATA Teams" sub="Client activity feed, deal rooms, branded reports." />} />
-            <Route path="/lender" element={<Placeholder title="STRATA Lender" sub="DSCR dashboards, borrower matching, deal intake." />} />
-            <Route path="/settings" element={<Placeholder title="Settings" sub="Profile, alerts, API keys, billing." />} />
+            <Route path="/market" element={<MarketPulsePage />} />
+            <Route path="/clients" element={<ClientsPage />} />
+            <Route path="/lender" element={<LenderPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>
       </div>

@@ -20,6 +20,9 @@ class HoldingCreate(CamelModel):
 
 
 class HoldingUpdate(CamelModel):
+    address: str | None = None
+    purchase_price: int | None = None
+    purchase_date: date | None = None
     current_value: int | None = None
     loan_balance: int | None = None
     monthly_rent: float | None = None

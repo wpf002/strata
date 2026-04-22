@@ -233,9 +233,11 @@ async def get_property_by_id(
     if match:
         return _mock_to_response(match)
 
-    # Try ATTOM if available
-    if settings.attom_api_key:
-        return await _fetch_attom_property(property_id)
+    # Try RapidAPI detail endpoint
+    if settings.rapidapi_key:
+        live = await _fetch_rapidapi_property(property_id, settings.rapidapi_key, db)
+        if live:
+            return live
 
     return None
 
@@ -281,15 +283,153 @@ def _db_to_response(prop: Property) -> PropertyResponse:
     )
 
 
+async def _fetch_rapidapi_property(
+    property_id: str, api_key: str, db: AsyncSession
+) -> PropertyResponse | None:
+    url = "https://realty-in-us.p.rapidapi.com/properties/v3/detail"
+    headers = {
+        "X-RapidAPI-Key": api_key,
+        "X-RapidAPI-Host": "realty-in-us.p.rapidapi.com",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url, params={"property_id": property_id}, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("RapidAPI detail fetch failed for %s", property_id)
+        return None
+
+    home = (data.get("data") or {}).get("home") or {}
+    if not home:
+        return None
+
+    try:
+        loc = home.get("location", {})
+        addr = loc.get("address", {})
+        desc = home.get("description", {})
+        coord = addr.get("coordinate", {})
+
+        price = home.get("list_price") or home.get("price") or 0
+        beds = desc.get("beds") or 0
+        baths = float(desc.get("baths") or 0)
+        sqft = desc.get("sqft") or 1
+        year_built = desc.get("year_built")
+        address = addr.get("line") or "Unknown Address"
+        city_val = addr.get("city") or ""
+        state_val = addr.get("state_code") or ""
+        zip_val = addr.get("postal_code") or ""
+        lat = float(coord.get("lat") or 0) or None
+        lng = float(coord.get("lon") or 0) or None
+        image_href = (home.get("primary_photo") or {}).get("href")
+
+        rent_mid = round(sqft * 1.2 + beds * 80 + baths * 60)
+        rent_low = round(rent_mid * 0.88)
+        rent_high = round(rent_mid * 1.12)
+        noi_mo = rent_mid * 0.5
+        cap_rate = round((noi_mo * 12 / price * 100) if price > 0 else 0, 1)
+        deal_score = _compute_deal_score(price, cap_rate, sqft, beds)
+        risk_score = _compute_risk_score(year_built, price, sqft)
+        fair_value_low = round(price * 0.93)
+        fair_value_high = round(price * 1.07)
+        price_vs_fv = round(((price - (fair_value_low + fair_value_high) / 2) / ((fair_value_low + fair_value_high) / 2)) * 100, 1)
+        down = price * 0.25
+        loan = price - down
+        mr = 7.25 / 100 / 12
+        mtg = loan * (mr * (1 + mr) ** 360) / ((1 + mr) ** 360 - 1)
+        egi = rent_mid * 0.94
+        opex = egi * 0.08 + price * 0.022 / 12 + 140 + price * 0.01 / 12
+        cash_flow = round(egi - opex - mtg)
+        coc = round(((cash_flow * 12) / (down + 8500)) * 100, 1)
+
+        # Cache in DB
+        try:
+            new_prop = Property(
+                address=address,
+                city=city_val,
+                state=state_val,
+                zip=zip_val,
+                lat=lat,
+                lon=lng,
+                beds=beds,
+                baths=baths,
+                sqft=sqft,
+                year_built=year_built,
+                property_type=desc.get("type") or "Single Family",
+                data={
+                    "external_id": property_id,
+                    "list_price": price,
+                    "status": home.get("status") or "Active",
+                    "days_on_market": home.get("days_on_market") or 0,
+                    "deal_score": deal_score,
+                    "risk_score": risk_score,
+                    "cap_rate": cap_rate,
+                    "cash_on_cash": coc,
+                    "cash_flow": cash_flow,
+                    "fair_value_low": fair_value_low,
+                    "fair_value_high": fair_value_high,
+                    "rent_est_low": rent_low,
+                    "rent_est_mid": rent_mid,
+                    "rent_est_high": rent_high,
+                    "rent_confidence": "Low",
+                    "valuation_confidence": "Low",
+                    "price_vs_fair_value": price_vs_fv,
+                    "strategy_fit": round(deal_score * 0.9),
+                    "market_regime": "Balanced",
+                    "image": image_href,
+                    "risk_flags": [],
+                },
+            )
+            db.add(new_prop)
+            await db.flush()
+        except Exception:
+            pass
+
+        return PropertyResponse(
+            id=property_id,
+            address=address,
+            city=city_val,
+            state=state_val,
+            zip=zip_val,
+            price=price,
+            beds=beds,
+            baths=baths,
+            sqft=sqft,
+            year_built=year_built,
+            type=desc.get("type") or "Single Family",
+            status=home.get("status") or "Active",
+            days_on_market=home.get("days_on_market") or 0,
+            deal_score=deal_score,
+            risk_score=risk_score,
+            cap_rate=cap_rate,
+            cash_on_cash=coc,
+            cash_flow=cash_flow,
+            fair_value_low=fair_value_low,
+            fair_value_high=fair_value_high,
+            rent_est_low=rent_low,
+            rent_est_mid=rent_mid,
+            rent_est_high=rent_high,
+            rent_confidence="Low",
+            valuation_confidence="Low",
+            price_vs_fair_value=price_vs_fv,
+            strategy_fit=round(deal_score * 0.9),
+            neighborhood=None,
+            neighborhood_score=None,
+            market_regime="Balanced",
+            risk_flags=[],
+            image=image_href,
+            lat=lat,
+            lng=lng,
+        )
+    except Exception:
+        return None
+
+
 async def _search_attom(
     query, min_deal_score, max_price, min_cap_rate, property_types, sort_by
 ) -> list[PropertyResponse]:
-    # ATTOM integration placeholder — implement when key is present
     return []
-
-
-async def _fetch_attom_property(property_id: str) -> PropertyResponse | None:
-    return None
 
 
 async def _search_rapidapi(

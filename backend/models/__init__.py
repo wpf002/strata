@@ -2,6 +2,7 @@ from .user import User
 from .property import Property, Listing
 from .portfolio import PortfolioHolding, UnderwritingScenario
 from .search import SavedSearch, Watchlist
+from .client import Client
 
 __all__ = [
     "User",
@@ -11,4 +12,5 @@ __all__ = [
     "UnderwritingScenario",
     "SavedSearch",
     "Watchlist",
+    "Client",
 ]

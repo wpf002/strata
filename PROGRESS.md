@@ -28,64 +28,121 @@
 - `SavedSearch.name` added to backend model and schema
 
 #### Task 4 — Map View
-- `react-leaflet` + `leaflet` installed in `/web`
-- `MapView` component with OpenStreetMap tiles (no API key)
-- Custom SVG marker pins colored by deal score (green ≥70, amber 50–69, red <50)
-- Clicking a pin highlights the card in the list and shows a popup with key metrics + Underwrite button
-- Map bounds auto-fit when search results change
-- View toggle switches between List only ↔ Map+List split (55/45)
+- React-Leaflet map with OpenStreetMap tiles (no API key)
+- Custom SVG deal-score-colored pins (green ≥70, amber 50-69, red <50)
+- Toggle between list and split map+list view (55/45)
+- Click pin → highlight card, click card → fly to pin
+- Popup on click: address, metrics, Underwrite button
 
-#### Task 5 — Portfolio Real Holdings
-- `GET/POST/PUT/DELETE /portfolio/holdings` verified end-to-end
-- "Add Property" modal with all required fields (address, price, date, loan, rent, expenses, notes)
-- "Update Actuals" button pre-fills modal for selected holding
-- Empty state with centered CTA when no holdings exist
-- Success toasts on save/update
-- Fallback image `onError` handler for holdings without photos
+#### Task 5 — Portfolio Page
+- Add Property modal with all required fields
+- Update Actuals modal pre-filled with current data
+- Empty state with CTA
+- Holdings list with equity/cash-flow/recommendation badge
+- Real DB CRUD via `POST/PUT/DELETE /portfolio/holdings`
 
-#### Task 6 — Email Alerts (SendGrid)
-- `alert_service.py` — HTML email via SendGrid with property table (max 5 per alert)
-- `background/search_alerts.py` — re-runs saved searches, diffs against `last_notified_property_ids`
-- APScheduler `AsyncIOScheduler` wired into FastAPI lifespan, runs every 6 hours
-- `last_notified_property_ids` + `name` columns added to `saved_searches` model
+#### Task 6 — Email Alerts
+- SendGrid HTML email template: STRATA header, property table, View link, footer
+- APScheduler runs `run_saved_search_alerts` every 6 hours
+- Diffs new vs notified property IDs to avoid duplicate alerts
 
-#### Task 7 — FEMA Flood Zone Service
-- `risk_service.get_flood_zone(lat, lon)` calls FEMA NFHL MapServer (no API key)
-- Zone → risk label mapping (AE/A/AO → High, VE/V → Very High, X shaded → Moderate, X → Low)
-- Flood zone badge on Risk tab (green/amber/red)
-- Included in `/properties/{id}/risk` response as `flood_risk`
+#### Task 7 — FEMA Flood Zone
+- `get_flood_zone(lat, lon)` calls FEMA NFHL MapServer REST API (no key)
+- Zone → risk label mapping (AE/A=High, VE=Very High, X shaded=Moderate, X=Low)
+- Flood badge on Risk tab in Intelligence page
 
-#### Task 8 — School Data Service
-- `school_service.get_nearby_schools(lat, lon, radius_miles)` via NCES ArcGIS (no API key)
-- Returns up to 10 schools sorted Elementary → Middle → High
-- Charter/Magnet flags included
-- Displayed on Intelligence page Overview tab (Nearby Schools panel)
+#### Task 8 — School Data (NCES ArcGIS)
+- `get_nearby_schools(lat, lon)` calls NCES ArcGIS (no key required)
+- Returns up to 10 schools sorted by type, with charter/magnet flags
+- Displayed in Overview tab
 
-#### Task 9 — Rent Estimate Service (RentCast)
-- Updated `rent_service.get_rent_estimate(address, property_type, beds, baths, sqft)`
-- RentCast AVM endpoint with proper spread-based confidence logic (High <15%, Medium <25%, Low else)
-- Fallback: `sqft * 1.2` estimate with `source: "Estimate"` when key missing or API fails
-- Live rent estimate shown on Overview tab sourced from API
+#### Task 9 — Rent Estimates (RentCast)
+- `get_rent_estimate()` calls RentCast AVM; fallback: sqft * 1.2
+- Spread-based confidence: High/Medium/Low
+- Live rent estimate shown in Overview tab
 
-#### Task 10 — Property Listings (RapidAPI)
-- `property_service._search_rapidapi()` calls `realty-in-us.p.rapidapi.com`
-- Maps all RapidAPI response fields to STRATA `PropertyResponse` schema
-- Runs deal score + risk score calculation on every result
-- Falls back to 6-property mock dataset when key absent
+#### Task 10 — RapidAPI Listings
+- `_search_rapidapi()` fetches live listings from realty-in-us.p.rapidapi.com
+- Full field mapping: address, price, beds, baths, sqft, year_built, coordinates
+- Per-listing deal_score and risk_score computed from cap rate and property age
+- Mock fallback when key absent or call fails
 
-#### Task 11 — Wire All Data Sources into Property Endpoints
-- `GET /properties/{id}` concurrently fetches flood risk, nearby schools, rent estimate via `asyncio.gather`
-- `PropertyResponse` schema extended with `flood_risk`, `nearby_schools`, `rent_estimate`
-- `GET /properties/{id}/risk` includes `flood_risk` dimension
-- Frontend Intelligence page displays all three data sources
+#### Task 11 — Concurrent Enrichment
+- `asyncio.gather(flood_zone, nearby_schools, rent_estimate)` on `GET /properties/{id}`
+- All three enrichments run in parallel; results attached to response
 
-### Configuration
-- `backend/.env` populated with: `ANTHROPIC_API_KEY`, `RAPIDAPI_KEY`, `RENTCAST_API_KEY`, `SENDGRID_API_KEY`
-- `web/.env` set: `VITE_API_URL=http://localhost:8080`, `VITE_USE_MOCK=false`
-- `apscheduler` and `anthropic` packages added to `requirements.txt`
-- `react-leaflet`, `leaflet`, `@types/leaflet` added to web `package.json`
+---
 
-### Build Status
-- `npx tsc --noEmit` — ✅ zero errors
-- Backend import check — ✅ all routes load cleanly
-- API smoke test — ✅ `/health` and `/properties/search` respond correctly
+## Sprint 3 — April 2026
+
+### Completed
+
+#### Task 1 — RapidAPI Property Detail + DB Caching
+- `_fetch_rapidapi_property(id)` calls `/properties/v3/detail` endpoint
+- Full financial model applied: cap rate, deal score, risk score, cash flow
+- Result cached in `properties` table for future requests
+- Graceful fallback: returns None on error, caller falls back to mock
+
+#### Task 2 — Portfolio Real DB CRUD
+- Health score formula updated to match spec:
+  - Up to 40 pts: positive cash flow ratio across portfolio
+  - Up to 20 pts: geographic diversity (penalize >50% one state)
+  - Up to 20 pts: average LTV below 75%
+  - Up to 20 pts: 3+ properties
+- `HoldingUpdate` schema now accepts `address`, `purchase_price`, `purchase_date`
+- Delete with confirmation modal on each holding row
+- Row-level Edit and Delete icon buttons (non-conflicting accessible names)
+
+#### Task 3 — Market Pulse Page (5 Markets)
+- Backend `GET /market/summary` returns Dallas TX, Phoenix AZ, Nashville TN, Atlanta GA, Tampa FL
+- RentCast market endpoint called per market when key is set; hardcoded baselines as fallback
+- Regime logic: Hot (<2mo inventory), Balanced (2–3.5mo + >2% price growth), Cooling (3.5–5mo or negative), Buyer's Market (>5mo)
+- `MarketPulsePage.tsx`: 5 cards with regime badge, metrics, expand to price+rent charts
+- Charts use 12-month interpolated trends from ending values + growth rate
+- "Search this market" navigates to `/` with `?q=` URL param pre-filling SearchPage
+
+#### Task 4 — Clients Page
+- `clients` DB table via Alembic migration `002_clients_table.py`
+- `Client` model with user_id, name, email, phone, strategy, price range, target markets, property types, notes
+- Full CRUD: `GET/POST/PUT/DELETE /clients`
+- `GET /clients/{id}/matches` runs property search by client criteria, returns top 5 by deal score
+- `ClientsPage.tsx`: two-panel layout — client roster left, matching properties right
+- Add/Edit modal with all fields; strategy badge colors per type
+- "Share with Client" button copies Intelligence page link to clipboard
+
+#### Task 5 — DSCR Calculator (LenderPage)
+- `LenderPage.tsx`: pure client-side DSCR calculator
+- Inputs: property value, loan amount, rate, term (30yr/40yr/IO), rent, taxes, insurance, HOA
+- Live LTV slider synced to loan amount
+- Outputs: monthly NOI, monthly debt service, DSCR gauge with color bands
+- Max loan at 1.25× DSCR and max purchase at 75% LTV displayed
+- Qualification band reference table + lender benchmark table
+- "Export DSCR Summary" copies formatted text to clipboard
+
+#### Task 6 — Settings Page
+- Four sections: Profile, Investment Strategy, Alert Preferences, Account
+- Profile: display name edit → `PUT /users/me`
+- Strategy: primary strategy, target markets, price range, min deal score, min CoC sliders
+- Alerts: email alert toggle, price drop alert toggle, frequency (Immediately/Daily/Weekly)
+- Account: send Supabase password reset email, sign out
+- Section saves independently with success feedback
+
+#### Task 7 — Email Alerts Confirmed
+- APScheduler startup log: "Alert scheduler started. Next run: {time}"
+- `POST /alerts/test-email` endpoint sends a test alert via SendGrid
+- Returns 503 with instructions if SendGrid not configured
+
+#### Task 8 — Mobile: Wired to Live Backend
+- `mobile/src/constants.ts`: API_BASE_URL defaults to `http://localhost:8080` in dev
+- `mobile/src/api.ts`: USE_MOCK=false, Bearer token on every request, 401 → signOut
+- `mobile/src/supabase.ts`: Supabase client with AsyncStorage session persistence
+- `mobile/src/screens/LoginScreen.tsx`: email+password sign-in, inline error display
+- `mobile/src/screens/SearchScreen.tsx`: full property list with pull-to-refresh
+- `mobile/App.tsx`: session check on startup → LoginScreen or SearchScreen
+
+---
+
+## Test Status (April 2026)
+- Frontend: **75 tests passing** (Vitest)
+- Backend: **30 tests passing** (pytest)
+- TypeScript: **0 errors** (`tsc --noEmit`)

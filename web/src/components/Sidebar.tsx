@@ -6,7 +6,7 @@ const navSections = [
   { label: 'DISCOVER', items: [{ icon: Search, label: 'Search', path: '/' }, { icon: TrendingUp, label: 'Market Pulse', path: '/market' }] },
   { label: 'ANALYZE', items: [{ icon: BarChart3, label: 'Intelligence', path: '/intelligence' }, { icon: Calculator, label: 'Underwrite', path: '/underwrite' }] },
   { label: 'OPERATE', items: [{ icon: Briefcase, label: 'Portfolio', path: '/portfolio' }, { icon: Bot, label: 'Copilot', path: '/copilot' }] },
-  { label: 'TEAMS', items: [{ icon: Users, label: 'Clients', path: '/teams' }, { icon: Landmark, label: 'Lender', path: '/lender' }] },
+  { label: 'TEAMS', items: [{ icon: Users, label: 'Clients', path: '/clients' }, { icon: Landmark, label: 'Lender', path: '/lender' }] },
 ];
 
 export default function Sidebar() {
