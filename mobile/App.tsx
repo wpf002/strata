@@ -9,6 +9,7 @@ import LoginScreen from './src/screens/LoginScreen';
 import SearchScreen from './src/screens/SearchScreen';
 import IntelligenceScreen from './src/screens/IntelligenceScreen';
 import PortfolioScreen from './src/screens/PortfolioScreen';
+import CopilotScreen from './src/screens/CopilotScreen';
 import type { MobileProperty, PortfolioEntry } from './src/api';
 
 type Tab = 'search' | 'portfolio' | 'copilot';
@@ -68,25 +69,6 @@ const tabStyles = StyleSheet.create({
   },
 });
 
-function CopilotPlaceholder() {
-  return (
-    <View style={placeholderStyles.container}>
-      <Text style={placeholderStyles.icon}>✦</Text>
-      <Text style={placeholderStyles.title}>STRATA Copilot</Text>
-      <Text style={placeholderStyles.sub}>
-        AI-powered deal analysis and market intelligence.{'\n'}
-        Available in the web app at strata.app
-      </Text>
-    </View>
-  );
-}
-
-const placeholderStyles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#080f1a', alignItems: 'center', justifyContent: 'center', padding: 32 },
-  icon: { fontSize: 40, color: '#C9A84C', marginBottom: 16 },
-  title: { fontSize: 20, fontWeight: '800', color: '#f1f5f9', marginBottom: 8 },
-  sub: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 22 },
-});
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -162,7 +144,7 @@ export default function App() {
             {activeTab === 'portfolio' && (
               <PortfolioScreen onPropertyPress={handlePortfolioPropertyPress} />
             )}
-            {activeTab === 'copilot' && <CopilotPlaceholder />}
+            {activeTab === 'copilot' && <CopilotScreen propertyId={selectedPropertyId} />}
           </View>
           <TabBar active={activeTab} onChange={setActiveTab} />
         </View>

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from .config import get_settings
 from .routers import properties, underwriting, portfolio, market, users, search
-from .routers import copilot, clients
+from .routers import copilot, clients, reports, deal_rooms
 
 settings = get_settings()
 log = logging.getLogger(__name__)
@@ -60,6 +60,8 @@ app.include_router(market.router)
 app.include_router(search.router)
 app.include_router(copilot.router)
 app.include_router(clients.router)
+app.include_router(reports.router)
+app.include_router(deal_rooms.router)
 
 
 @app.get("/health")
@@ -69,6 +71,42 @@ async def health():
 
 class TestEmailRequest(BaseModel):
     email: str
+
+
+class TestPushRequest(BaseModel):
+    user_id: str
+
+
+@app.post("/alerts/test-push")
+async def send_test_push(body: TestPushRequest):
+    import uuid as _uuid
+    from .database import get_db as _get_db
+    from .models.user import User as _User
+    from sqlalchemy import select as _select
+    from .services.alert_service import send_push_notification
+
+    try:
+        _uid = _uuid.UUID(body.user_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid user_id format")
+
+    async for db in _get_db():
+        result = await db.execute(_select(_User).where(_User.id == _uid))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not user.push_token:
+            raise HTTPException(status_code=400, detail="User has no registered push token")
+
+        sent = await send_push_notification(
+            push_token=user.push_token,
+            platform=user.push_platform or "ios",
+            title="STRATA Test Push",
+            body="Your push notifications are working correctly.",
+            data={"type": "test"},
+        )
+        return {"sent": sent, "token": user.push_token[:12] + "…"}
+
 
 
 @app.post("/alerts/test-email")

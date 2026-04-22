@@ -213,6 +213,57 @@
 
 ---
 
+---
+
+## Sprint 5 — April 2026
+
+### Task 1 — Branded CMA Builder
+
+- `POST /reports/cma` → generates narrative for each section via Claude, stores in `reports` table
+- `GET /reports/{id}` → public route (no auth), shareable link for clients
+- `Report` model + Alembic migration `005_reports`
+- `CMAModal` in `ClientsPage.tsx`: "CMA" button on each matched property, pre-fills agent profile from settings
+- `ReportPage.tsx` at `/reports/:id` — renders CMA and property-brief; CMA has print CSS + "Download PDF" via `window.print()`
+- "Share Link" copies `/reports/{id}` URL to clipboard
+
+### Task 2 — Client-Facing Property Brief
+
+- `POST /reports/property-brief` → lightweight single-property summary (valuation, rent, risk flags, neighborhood score, agent contact)
+- "Send to Client" button on `IntelligencePage.tsx` (next to "Ask Copilot")
+- Modal: client name + optional personal message → generate → copy shareable link
+- Brief rendered at `/reports/:id` with property photo, valuation range, rent estimate, risk flags in plain English, agent contact card, "Get Full Analysis" CTA
+
+### Task 3 — Deal Rooms
+
+- `deal_rooms`, `deal_room_tasks`, `deal_room_messages` tables via migration `006_deal_rooms`
+- Full CRUD: `GET/POST /deal-rooms`, `GET/PUT /deal-rooms/{id}`, task and message sub-routes
+- Pre-populated 7-item closing checklist on room creation
+- `DealRoomsPage.tsx`: left panel room list (status badge, participant count, task completion progress bar, days active), right panel with Tasks / Messages / Documents tabs
+- "Deal Rooms" added to Sidebar under TEAMS section
+- Task toggle (pending ↔ complete), add/delete custom tasks, threaded message feed with auto-scroll
+
+### Task 4 — Hold / Sell / Refi Engine
+
+- `POST /portfolio/holdings/{id}/analysis` — evaluates 7 sell/refi/hold signals from LTV, appreciation, cash flow, and market rate
+- Returns recommendation, confidence, rationale, signals triggered, and type-specific financial projections
+- `AnalysisPanel` in `PortfolioPage.tsx`: "Get Hold/Sell/Refi Analysis" Quick Action fetches live recommendation; shows signals checklist and relevant financials (net proceeds / cash-out / projected equity)
+
+### Task 5 — 1031 + Tax Layer
+
+- `POST /portfolio/holdings/{id}/tax-analysis` — depreciation (27.5yr straight-line on 80%), capital gains waterfall, LTCG tax (15%/20%), depreciation recapture (25%), state tax estimate, 1031 eligibility + deadlines, cost segregation flag
+- `TaxPanel` in `PortfolioPage.tsx`: three sections — Depreciation, "If Sold Today" waterfall, 1031 Exchange with ID and exchange deadlines
+- Prominent disclaimer on every tax output
+
+### Task 6 — Mobile Copilot + Push Alerts
+
+- `CopilotScreen.tsx`: FlatList message feed, navy user bubbles / glass assistant bubbles, streaming via `fetch` + `ReadableStream`, animated 3-dot typing indicator, 4 suggestion chip pills, property context banner, KeyboardAvoidingView
+- `App.tsx`: `CopilotPlaceholder` replaced with live `CopilotScreen`; property context passed when navigating from Intelligence tab
+- Firebase placeholder configs: `google-services.json` + `GoogleService-Info.plist` at mobile root with step-by-step setup instructions
+- `notifications.ts` updated: explicit iOS permission request, foreground `Alert` banner handler, background message handler, token refresh wired to backend
+- `POST /alerts/test-push` backend endpoint: looks up user's registered FCM token, fires test notification via FCM REST API
+
+---
+
 ## Current Test Status
 
 - Frontend: **75 tests passing** (Vitest)

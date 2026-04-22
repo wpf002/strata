@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Calculator, Star, Share2, Bell, ChevronRight, MapPin, Info,
   ThumbsUp, ThumbsDown, Clock, Home, TrendingUp, Shield, AlertTriangle,
-  Landmark, Bot, Droplets, GraduationCap, Target,
+  Landmark, Bot, Droplets, GraduationCap, Target, Send, X, Check, Loader2,
 } from 'lucide-react';
 import { getProperty, getValuation, getRisk, getWatchlists, createWatchlist, addToWatchlist, removeFromWatchlist } from '../api/client';
 import type { Property } from '../types';
@@ -51,7 +51,44 @@ export default function IntelligencePage() {
   const [watchlistId, setWatchlistId] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
   const [alertSet, setAlertSet] = useState(false);
+  const [showBriefModal, setShowBriefModal] = useState(false);
+  const [briefClientName, setBriefClientName] = useState('');
+  const [briefMessage, setBriefMessage] = useState('');
+  const [briefGenerating, setBriefGenerating] = useState(false);
+  const [briefReportId, setBriefReportId] = useState<string | null>(null);
+  const [briefLinkCopied, setBriefLinkCopied] = useState(false);
   const activityTracked = useRef(false);
+
+  const handleGenerateBrief = async () => {
+    setBriefGenerating(true);
+    try {
+      const headers = await authHeaders();
+      const res = await fetch(`${BASE_URL}/reports/property-brief`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          propertyId: propId,
+          clientName: briefClientName || 'Valued Client',
+          message: briefMessage || null,
+        }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json();
+      setBriefReportId(data.reportId);
+    } catch {
+      // stay open so user can retry
+    } finally {
+      setBriefGenerating(false);
+    }
+  };
+
+  const copyBriefLink = () => {
+    if (!briefReportId) return;
+    navigator.clipboard.writeText(`${window.location.origin}/reports/${briefReportId}`).then(() => {
+      setBriefLinkCopied(true);
+      setTimeout(() => setBriefLinkCopied(false), 2000);
+    });
+  };
 
   const propId = id || 'p1';
 
@@ -197,6 +234,44 @@ export default function IntelligencePage() {
 
   return (
     <div className="flex flex-col h-full page-fade">
+      {/* Send to Client modal */}
+      {showBriefModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowBriefModal(false)}>
+          <div className="glass rounded-2xl p-6 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-semibold text-white">Send to Client</h3>
+              <button onClick={() => setShowBriefModal(false)} className="text-slate-500 hover:text-white transition-colors"><X size={16} /></button>
+            </div>
+            {!briefReportId ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Client Name</label>
+                  <input className="strata-input w-full" placeholder="Jane Smith" value={briefClientName} onChange={e => setBriefClientName(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Personal message (optional)</label>
+                  <textarea className="strata-input w-full resize-none" rows={3} placeholder="Thought you'd love this one…" value={briefMessage} onChange={e => setBriefMessage(e.target.value)} />
+                </div>
+                <button onClick={handleGenerateBrief} disabled={briefGenerating} className="btn-primary w-full justify-center text-sm">
+                  {briefGenerating ? <><Loader2 size={14} className="animate-spin" /> Generating…</> : <><Send size={14} /> Generate Brief</>}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="glass rounded-xl p-3 border border-emerald-500/20">
+                  <p className="text-xs text-emerald-400 font-semibold mb-1">Brief ready!</p>
+                  <p className="text-xs text-slate-400 break-all">{window.location.origin}/reports/{briefReportId}</p>
+                </div>
+                <button onClick={copyBriefLink} className="btn-primary w-full justify-center text-sm">
+                  {briefLinkCopied ? <><Check size={14} /> Copied!</> : <><Check size={14} /> Copy Link</>}
+                </button>
+                <button onClick={() => { setBriefReportId(null); setBriefClientName(''); setBriefMessage(''); }} className="btn-ghost w-full justify-center text-sm">Generate Another</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Topbar */}
       <div className="px-6 py-3 border-b border-white/5 flex items-center gap-4 flex-shrink-0">
         <button onClick={() => navigate('/')} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm">
@@ -219,6 +294,9 @@ export default function IntelligencePage() {
           <button onClick={handleWatch} className={clsx('btn-ghost text-xs py-1.5 px-3', isWatched && 'text-amber-400')}><Star size={12} className={isWatched ? 'fill-amber-400' : ''} /> {isWatched ? 'Watching' : 'Watch'}</button>
           <button onClick={handleShare} className="btn-ghost text-xs py-1.5 px-3"><Share2 size={12} /> {shareCopied ? 'Copied!' : 'Share'}</button>
           <button onClick={handleAlert} className={clsx('btn-ghost text-xs py-1.5 px-3', alertSet && 'text-amber-400')}><Bell size={12} /> {alertSet ? 'Alert Set!' : 'Alert'}</button>
+          <button className="btn-ghost text-sm" onClick={() => setShowBriefModal(true)}>
+            <Send size={14} /> Send to Client
+          </button>
           <button className="btn-ghost text-sm" onClick={() => navigate(`/copilot?property=${property.id}`)}>
             <Bot size={14} /> Ask Copilot
           </button>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, X, Users, Copy, Check, ChevronRight, Eye, Star, Share2, BarChart2 } from 'lucide-react';
+import { Plus, X, Users, Copy, Check, ChevronRight, Eye, Star, Share2, BarChart2, FileText, Loader2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { fmt, ScoreBadge } from '../components/UI';
 import { supabase } from '../lib/supabase';
@@ -253,6 +253,224 @@ function ClientModal({
   );
 }
 
+// ── CMA Builder ───────────────────────────────────────────────────────────────
+
+const ALL_SECTIONS = ['valuation', 'comps', 'market', 'risk', 'financials', 'neighborhood'] as const;
+type CMASection = typeof ALL_SECTIONS[number];
+
+const SECTION_LABELS: Record<CMASection, string> = {
+  valuation: 'Valuation', comps: 'Comps', market: 'Market', risk: 'Risk',
+  financials: 'Financials', neighborhood: 'Neighborhood',
+};
+
+interface CMAReport {
+  reportId: string;
+  generatedAt: string;
+  agent: { name: string; email: string; phone: string; brokerage: string };
+  clientName: string;
+  property: { address: string; city: string; state: string; price: number; dealScore: number; image?: string };
+  sections: Record<string, unknown>;
+  recommendation: string;
+}
+
+function CMAModal({
+  property,
+  client,
+  onClose,
+}: {
+  property: MatchProperty;
+  client: Client;
+  onClose: () => void;
+}) {
+  const [agentName, setAgentName] = useState('');
+  const [agentEmail, setAgentEmail] = useState('');
+  const [agentPhone, setAgentPhone] = useState('');
+  const [brokerageName, setBrokerageName] = useState('');
+  const [sections, setSections] = useState<CMASection[]>([...ALL_SECTIONS]);
+  const [generating, setGenerating] = useState(false);
+  const [report, setReport] = useState<CMAReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  // Pre-fill agent info from user settings
+  useEffect(() => {
+    apiGet<{ strategySettings: Record<string, string> }>('/users/me').then(u => {
+      const s = u.strategySettings ?? {};
+      setAgentName(s.agentName ?? '');
+      setAgentEmail('');
+      setAgentPhone(s.agentPhone ?? '');
+      setBrokerageName(s.brokerageName ?? '');
+      supabase.auth.getSession().then(({ data }) => {
+        if (data.session?.user?.email) setAgentEmail(data.session.user.email);
+      });
+    }).catch(() => {});
+  }, []);
+
+  const toggleSection = (s: CMASection) =>
+    setSections(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+
+  const generate = async () => {
+    setGenerating(true);
+    setError(null);
+    try {
+      const data = await apiPost<CMAReport>('/reports/cma', {
+        propertyId: property.id,
+        agentName,
+        agentEmail,
+        agentPhone,
+        brokerageName,
+        clientName: client.name,
+        includeSections: sections,
+      });
+      setReport(data);
+    } catch {
+      setError('Failed to generate report. Please try again.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const copyLink = () => {
+    if (!report) return;
+    const url = `${window.location.origin}/reports/${report.reportId}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="glass rounded-2xl w-full max-w-2xl mx-4 max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/5 flex-shrink-0">
+          <div>
+            <h3 className="text-base font-semibold text-white">Generate CMA</h3>
+            <p className="text-xs text-slate-500">{property.address}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={16} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {!report ? (
+            <div className="space-y-4">
+              {error && <p className="text-xs text-red-400 p-2 rounded bg-red-400/10 border border-red-400/20">{error}</p>}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Client Name</label>
+                  <input className="strata-input w-full" value={client.name} readOnly />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Agent Name</label>
+                  <input className="strata-input w-full" value={agentName} onChange={e => setAgentName(e.target.value)} placeholder="Your name" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Agent Email</label>
+                  <input className="strata-input w-full" type="email" value={agentEmail} onChange={e => setAgentEmail(e.target.value)} placeholder="you@brokerage.com" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Agent Phone</label>
+                  <input className="strata-input w-full" value={agentPhone} onChange={e => setAgentPhone(e.target.value)} placeholder="(555) 000-0000" />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs text-slate-400 mb-1 block">Brokerage Name</label>
+                  <input className="strata-input w-full" value={brokerageName} onChange={e => setBrokerageName(e.target.value)} placeholder="Acme Realty Group" />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 mb-2 block">Include Sections</label>
+                <div className="flex flex-wrap gap-2">
+                  {ALL_SECTIONS.map(s => (
+                    <button key={s} type="button" onClick={() => toggleSection(s)}
+                      className={clsx('text-xs px-3 py-1.5 rounded-lg border transition-colors',
+                        sections.includes(s)
+                          ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
+                          : 'border-white/10 text-slate-500 hover:border-white/20')}>
+                      {sections.includes(s) && <Check size={10} className="inline mr-1" />}
+                      {SECTION_LABELS[s]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                onClick={generate}
+                disabled={generating || !agentName.trim()}
+                className="btn-primary w-full justify-center text-sm"
+              >
+                {generating
+                  ? <><Loader2 size={14} className="animate-spin" /> Generating your branded report…</>
+                  : <><FileText size={14} /> Generate Report</>}
+              </button>
+            </div>
+          ) : (
+            <div>
+              {/* Report preview */}
+              <div className="flex items-start justify-between mb-5 pb-4 border-b border-white/10">
+                <div>
+                  <p className="text-xs text-slate-500">Prepared for</p>
+                  <p className="text-base font-bold text-white">{report.clientName}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{new Date(report.generatedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-white">{report.agent.name}</p>
+                  <p className="text-xs text-slate-400">{report.agent.brokerage}</p>
+                  <p className="text-xs text-slate-400">{report.agent.email}</p>
+                </div>
+              </div>
+
+              <div className="glass rounded-xl p-4 mb-4">
+                <p className="text-xs text-slate-500 mb-1">Property</p>
+                <p className="text-sm font-semibold text-white">{report.property.address}</p>
+                <p className="text-xs text-slate-400">{report.property.city}, {report.property.state} · {fmt.currency(report.property.price)}</p>
+              </div>
+
+              {Object.entries(report.sections).map(([key, val]) => {
+                const s = val as Record<string, unknown>;
+                if (!s.narrative) return null;
+                return (
+                  <div key={key} className="mb-4">
+                    <h4 className="text-xs font-bold text-amber-400 uppercase tracking-widest mb-2">{SECTION_LABELS[key as CMASection] ?? key}</h4>
+                    <p className="text-sm text-slate-300 leading-relaxed">{s.narrative as string}</p>
+                  </div>
+                );
+              })}
+
+              {report.recommendation && (
+                <div className={clsx('rounded-xl border p-4 mt-4', {
+                  'bg-emerald-500/10 border-emerald-500/30 text-emerald-400': report.recommendation === 'Buy',
+                  'bg-amber-500/10 border-amber-500/30 text-amber-400': report.recommendation === 'Negotiate',
+                  'bg-orange-500/10 border-orange-500/30 text-orange-400': report.recommendation === 'Watch',
+                  'bg-red-500/10 border-red-500/30 text-red-400': report.recommendation === 'Avoid',
+                })}>
+                  <p className="text-xs font-bold uppercase tracking-widest mb-0.5 opacity-70">Recommendation</p>
+                  <p className="text-xl font-bold">{report.recommendation}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {report && (
+          <div className="px-6 py-4 border-t border-white/5 flex gap-2 flex-shrink-0">
+            <button onClick={() => window.open(`/reports/${report.reportId}`, '_blank')} className="btn-ghost text-sm flex-1 justify-center">
+              <FileText size={13} /> Open Full Report
+            </button>
+            <button onClick={copyLink} className="btn-ghost text-sm flex-1 justify-center">
+              {linkCopied ? <><Check size={13} /> Link Copied!</> : <><Copy size={13} /> Share Link</>}
+            </button>
+            <button onClick={() => window.open(`/reports/${report.reportId}`, '_blank')
+              && setTimeout(() => window.print(), 500)} className="btn-primary text-sm flex-1 justify-center">
+              Download PDF
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Activity Feed ─────────────────────────────────────────────────────────────
 
 function ActivityFeed({ clientId }: { clientId: string }) {
@@ -353,6 +571,7 @@ export default function ClientsPage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [rightTab, setRightTab] = useState<'matches' | 'activity'>('matches');
   const [clientActivity, setClientActivity] = useState<Record<string, PropertyActivity[]>>({});
+  const [cmaProperty, setCmaProperty] = useState<MatchProperty | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -493,6 +712,9 @@ export default function ClientsPage() {
   return (
     <div className="flex flex-col h-full page-fade overflow-hidden">
       {showModal && <ClientModal title="Add Client" onClose={() => setShowModal(false)} onSave={handleCreate} />}
+      {cmaProperty && active && (
+        <CMAModal property={cmaProperty} client={active} onClose={() => setCmaProperty(null)} />
+      )}
       {editingClient && (
         <ClientModal
           title="Edit Client"
@@ -637,6 +859,13 @@ export default function ClientsPage() {
                                 title="Copy link to share with client (tracks views)"
                               >
                                 {copied === p.id ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Share</>}
+                              </button>
+                              <button
+                                onClick={() => setCmaProperty(p)}
+                                className="btn-ghost text-xs gap-1.5 py-1.5 px-2.5"
+                                title="Generate branded CMA report"
+                              >
+                                <FileText size={12} /> CMA
                               </button>
                             </div>
                           </div>

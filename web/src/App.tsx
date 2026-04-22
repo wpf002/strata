@@ -11,6 +11,8 @@ import ClientsPage from './pages/ClientsPage';
 import LenderPage from './pages/LenderPage';
 import SettingsPage from './pages/SettingsPage';
 import AlertsPage from './pages/AlertsPage';
+import DealRoomsPage from './pages/DealRoomsPage';
+import ReportPage from './pages/ReportPage';
 import { useAuth } from './contexts/AuthContext';
 
 export default function App() {
@@ -30,24 +32,33 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <div className="flex h-screen overflow-hidden grid-bg">
-        <Sidebar />
-        <main className="flex-1 overflow-hidden flex flex-col bg-navy-950/50">
-          <Routes>
-            <Route path="/" element={<SearchPage />} />
-            <Route path="/intelligence/:id" element={<IntelligencePage />} />
-            <Route path="/intelligence" element={<IntelligencePage />} />
-            <Route path="/underwrite" element={<UnderwritePage />} />
-            <Route path="/portfolio" element={<PortfolioPage />} />
-            <Route path="/copilot" element={<CopilotPage />} />
-            <Route path="/market" element={<MarketPulsePage />} />
-            <Route path="/clients" element={<ClientsPage />} />
-            <Route path="/lender" element={<LenderPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/alerts" element={<AlertsPage />} />
-          </Routes>
-        </main>
-      </div>
+      <Routes>
+        {/* Public report route — no sidebar, no auth */}
+        <Route path="/reports/:id" element={<ReportPage />} />
+
+        {/* App shell with sidebar */}
+        <Route path="*" element={
+          <div className="flex h-screen overflow-hidden grid-bg">
+            <Sidebar />
+            <main className="flex-1 overflow-hidden flex flex-col bg-navy-950/50">
+              <Routes>
+                <Route path="/" element={<SearchPage />} />
+                <Route path="/intelligence/:id" element={<IntelligencePage />} />
+                <Route path="/intelligence" element={<IntelligencePage />} />
+                <Route path="/underwrite" element={<UnderwritePage />} />
+                <Route path="/portfolio" element={<PortfolioPage />} />
+                <Route path="/copilot" element={<CopilotPage />} />
+                <Route path="/market" element={<MarketPulsePage />} />
+                <Route path="/clients" element={<ClientsPage />} />
+                <Route path="/lender" element={<LenderPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/alerts" element={<AlertsPage />} />
+                <Route path="/deal-rooms" element={<DealRoomsPage />} />
+              </Routes>
+            </main>
+          </div>
+        } />
+      </Routes>
     </BrowserRouter>
   );
 }

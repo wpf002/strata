@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Target, Bell, Shield, Save, ChevronRight } from 'lucide-react';
+import { User, Target, Bell, Shield, Save, ChevronRight, Briefcase } from 'lucide-react';
 import { clsx } from 'clsx';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -49,10 +49,11 @@ interface UserProfile {
 
 const STRATEGIES = ['', 'LTR', 'STR', 'BRRRR', 'Flip', 'House Hack'];
 
-type Section = 'profile' | 'strategy' | 'alerts' | 'account';
+type Section = 'profile' | 'agent' | 'strategy' | 'alerts' | 'account';
 
 const SECTIONS: { id: Section; label: string; icon: typeof User }[] = [
   { id: 'profile', label: 'Profile', icon: User },
+  { id: 'agent', label: 'Agent Profile', icon: Briefcase },
   { id: 'strategy', label: 'Investment Strategy', icon: Target },
   { id: 'alerts', label: 'Alert Preferences', icon: Bell },
   { id: 'account', label: 'Account', icon: Shield },
@@ -241,6 +242,69 @@ function AlertsSection({ settings, onSave }: {
   );
 }
 
+function AgentProfileSection({ settings, onSave }: {
+  settings: UserProfile['strategySettings'];
+  onSave: (s: UserProfile['strategySettings']) => Promise<void>;
+}) {
+  const [form, setForm] = useState({
+    agentName: (settings as Record<string, string>).agentName ?? '',
+    brokerageName: (settings as Record<string, string>).brokerageName ?? '',
+    licenseNumber: (settings as Record<string, string>).licenseNumber ?? '',
+    agentPhone: (settings as Record<string, string>).agentPhone ?? '',
+    agentWebsite: (settings as Record<string, string>).agentWebsite ?? '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave({ ...settings, ...form });
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 2500);
+    } catch {
+      setError('Failed to save. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4 max-w-sm">
+      <p className="text-xs text-slate-500">These fields pre-fill every CMA and client report you generate.</p>
+      <div>
+        <label className="text-xs text-slate-400 mb-1.5 block">Agent Name</label>
+        <input className="strata-input w-full" value={form.agentName} onChange={set('agentName')} placeholder="Jane Smith" />
+      </div>
+      <div>
+        <label className="text-xs text-slate-400 mb-1.5 block">Brokerage Name</label>
+        <input className="strata-input w-full" value={form.brokerageName} onChange={set('brokerageName')} placeholder="Acme Realty Group" />
+      </div>
+      <div>
+        <label className="text-xs text-slate-400 mb-1.5 block">License Number (optional)</label>
+        <input className="strata-input w-full" value={form.licenseNumber} onChange={set('licenseNumber')} placeholder="TX-1234567" />
+      </div>
+      <div>
+        <label className="text-xs text-slate-400 mb-1.5 block">Phone</label>
+        <input className="strata-input w-full" value={form.agentPhone} onChange={set('agentPhone')} placeholder="(555) 000-0000" />
+      </div>
+      <div>
+        <label className="text-xs text-slate-400 mb-1.5 block">Website (optional)</label>
+        <input className="strata-input w-full" value={form.agentWebsite} onChange={set('agentWebsite')} placeholder="https://yoursite.com" />
+      </div>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      <button onClick={save} disabled={saving} className="btn-primary text-sm">
+        <Save size={14} /> {success ? 'Saved!' : saving ? 'Saving…' : 'Save Agent Profile'}
+      </button>
+    </div>
+  );
+}
+
 function AccountSection({ email, signOut }: { email: string; signOut: () => void }) {
   const [resetSent, setResetSent] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -341,6 +405,7 @@ export default function SettingsPage() {
         <div className="flex-1 overflow-y-auto px-8 py-6">
           <h2 className="text-base font-semibold text-white mb-5">{SECTIONS.find(s => s.id === section)?.label}</h2>
           {section === 'profile' && <ProfileSection profile={profile} onSave={saveProfile} />}
+          {section === 'agent' && <AgentProfileSection settings={profile.strategySettings} onSave={saveStrategy} />}
           {section === 'strategy' && <StrategySection settings={profile.strategySettings} onSave={saveStrategy} />}
           {section === 'alerts' && <AlertsSection settings={profile.strategySettings} onSave={saveAlerts} />}
           {section === 'account' && <AccountSection email={profile.email} signOut={signOut} />}

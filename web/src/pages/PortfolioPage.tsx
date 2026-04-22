@@ -1,11 +1,249 @@
 import { useState, useEffect } from 'react';
-import { Plus, ArrowUpRight, RefreshCw, AlertCircle, DollarSign, Building2, TrendingUp, X, Home, Trash2 } from 'lucide-react';
+import { Plus, ArrowUpRight, RefreshCw, AlertCircle, DollarSign, Building2, TrendingUp, X, Home, Trash2, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { getPortfolio, createHolding, updateHolding, deleteHolding } from '../api/client';
 import type { Portfolio, PortfolioHolding } from '../types';
 import { StatCard, MetricRow, ProgressBar, fmt } from '../components/UI';
 import { clsx } from 'clsx';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
 import { chartDataPortfolioEquity } from '../data/mockData';
+import { supabase } from '../lib/supabase';
+
+const BASE_URL = import.meta.env.VITE_API_URL ?? '';
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+}
+
+interface HoldingAnalysis {
+  recommendation: 'Hold' | 'Sell' | 'Refi';
+  confidence: 'High' | 'Medium' | 'Low';
+  rationale: string;
+  signalsTriggered: string[];
+  // Sell
+  estimatedNetProceeds?: number;
+  estimatedCapGains?: number;
+  suggestedListingPriceLow?: number;
+  suggestedListingPriceHigh?: number;
+  // Refi
+  estimatedNewLoan?: number;
+  estimatedCashOut?: number;
+  newMonthlyPayment?: number;
+  newDscr?: number;
+  breakevenMonths?: number;
+  // Hold
+  projectedEquity12Mo?: number;
+  projectedEquity36Mo?: number;
+  nextReviewTrigger?: string;
+}
+
+interface TaxAnalysis {
+  annualDepreciation: number;
+  accumulatedDepreciation: number;
+  depreciationRecaptureOnSale: number;
+  grossProceeds: number;
+  agentFees: number;
+  adjustedBasis: number;
+  capitalGain: number;
+  federalLtcgTax: number;
+  depreciationRecaptureTax: number;
+  statesTaxEstimate: number;
+  netAfterTaxProceeds: number;
+  yearsHeld: number;
+  qualifiesFor1031: boolean;
+  identificationDeadline: string;
+  exchangeDeadline: string;
+  minReplacementValue: number;
+  costSegregationApplicable: boolean;
+  estimatedYear1BonusDepreciation: number;
+  disclaimer: string;
+}
+
+// ── Analysis Panel ─────────────────────────────────────────────────────────────
+
+function AnalysisPanel({ holdingId, onClose }: { holdingId: string; onClose: () => void }) {
+  const [analysis, setAnalysis] = useState<HoldingAnalysis | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    authHeaders().then(h =>
+      fetch(`${BASE_URL}/portfolio/holdings/${holdingId}/analysis`, { method: 'POST', headers: h })
+        .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); })
+        .then(setAnalysis)
+        .catch(() => setError('Analysis unavailable.'))
+        .finally(() => setLoading(false))
+    );
+  }, [holdingId]);
+
+  const REC_STYLE: Record<string, string> = {
+    Hold: 'text-blue-400 border-blue-400/30 bg-blue-400/10',
+    Sell: 'text-emerald-400 border-emerald-400/30 bg-emerald-400/10',
+    Refi: 'text-amber-400 border-amber-500/30 bg-amber-500/10',
+  };
+
+  const CONF_COLOR: Record<string, string> = { High: 'text-emerald-400', Medium: 'text-amber-400', Low: 'text-orange-400' };
+
+  return (
+    <div className="glass rounded-2xl border border-white/10 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-white">Hold / Sell / Refi Analysis</h3>
+        <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={14} /></button>
+      </div>
+
+      {loading && <div className="flex items-center gap-2 text-slate-400 text-sm"><Loader2 size={14} className="animate-spin" /> Analyzing…</div>}
+      {error && <p className="text-sm text-red-400">{error}</p>}
+
+      {analysis && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <span className={clsx('text-2xl font-bold px-4 py-1.5 rounded-xl border', REC_STYLE[analysis.recommendation])}>
+              {analysis.recommendation}
+            </span>
+            <span className={clsx('text-xs font-semibold', CONF_COLOR[analysis.confidence])}>
+              {analysis.confidence} Confidence
+            </span>
+          </div>
+
+          <p className="text-sm text-slate-300 leading-relaxed">{analysis.rationale}</p>
+
+          <div>
+            <p className="text-xs text-slate-500 mb-2 uppercase tracking-widest">Signals Triggered</p>
+            <div className="space-y-1.5">
+              {analysis.signalsTriggered.map((s, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs text-slate-300">
+                  <span className="text-amber-400 mt-0.5">•</span> {s}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {analysis.recommendation === 'Sell' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="glass rounded-xl p-3"><p className="text-[10px] text-slate-500">Net Proceeds</p><p className="text-sm font-bold font-mono text-emerald-400">{fmt.currency(analysis.estimatedNetProceeds!)}</p></div>
+              <div className="glass rounded-xl p-3"><p className="text-[10px] text-slate-500">Capital Gain</p><p className="text-sm font-bold font-mono text-white">{fmt.currency(analysis.estimatedCapGains!)}</p></div>
+              <div className="glass rounded-xl p-3"><p className="text-[10px] text-slate-500">List Price Range</p><p className="text-sm font-bold font-mono text-white">{fmt.compact(analysis.suggestedListingPriceLow!)} – {fmt.compact(analysis.suggestedListingPriceHigh!)}</p></div>
+            </div>
+          )}
+
+          {analysis.recommendation === 'Refi' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="glass rounded-xl p-3"><p className="text-[10px] text-slate-500">New Loan</p><p className="text-sm font-bold font-mono text-white">{fmt.compact(analysis.estimatedNewLoan!)}</p></div>
+              <div className="glass rounded-xl p-3"><p className="text-[10px] text-slate-500">Cash Out</p><p className="text-sm font-bold font-mono text-amber-400">{fmt.currency(analysis.estimatedCashOut!)}</p></div>
+              <div className="glass rounded-xl p-3"><p className="text-[10px] text-slate-500">New Payment</p><p className="text-sm font-bold font-mono text-white">{fmt.currency(analysis.newMonthlyPayment!)}/mo</p></div>
+              <div className="glass rounded-xl p-3"><p className="text-[10px] text-slate-500">New DSCR</p><p className="text-sm font-bold font-mono text-emerald-400">{analysis.newDscr?.toFixed(2)}x</p></div>
+              {analysis.breakevenMonths !== undefined && (
+                <div className="glass rounded-xl p-3 col-span-2"><p className="text-[10px] text-slate-500">Breakeven</p><p className="text-sm font-bold font-mono text-white">{analysis.breakevenMonths} months</p></div>
+              )}
+            </div>
+          )}
+
+          {analysis.recommendation === 'Hold' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="glass rounded-xl p-3"><p className="text-[10px] text-slate-500">Equity in 12mo</p><p className="text-sm font-bold font-mono text-white">{fmt.compact(analysis.projectedEquity12Mo!)}</p></div>
+              <div className="glass rounded-xl p-3"><p className="text-[10px] text-slate-500">Equity in 36mo</p><p className="text-sm font-bold font-mono text-white">{fmt.compact(analysis.projectedEquity36Mo!)}</p></div>
+              <div className="glass rounded-xl p-3 col-span-2"><p className="text-[10px] text-slate-500">Next Review Trigger</p><p className="text-xs text-slate-300 mt-0.5">{analysis.nextReviewTrigger}</p></div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Tax Panel ──────────────────────────────────────────────────────────────────
+
+function TaxPanel({ holdingId, onClose }: { holdingId: string; onClose: () => void }) {
+  const [tax, setTax] = useState<TaxAnalysis | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    authHeaders().then(h =>
+      fetch(`${BASE_URL}/portfolio/holdings/${holdingId}/tax-analysis`, { method: 'POST', headers: h })
+        .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); })
+        .then(setTax)
+        .catch(() => setError('Tax analysis unavailable.'))
+        .finally(() => setLoading(false))
+    );
+  }, [holdingId]);
+
+  return (
+    <div className="glass rounded-2xl border border-white/10 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-white">Tax &amp; Exit Analysis</h3>
+        <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={14} /></button>
+      </div>
+
+      {loading && <div className="flex items-center gap-2 text-slate-400 text-sm"><Loader2 size={14} className="animate-spin" /> Calculating…</div>}
+      {error && <p className="text-sm text-red-400">{error}</p>}
+
+      {tax && (
+        <div className="space-y-5">
+          {/* Depreciation */}
+          <div>
+            <p className="text-xs font-bold text-amber-400 uppercase tracking-widest mb-2">Depreciation</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="glass rounded-xl p-3"><p className="text-[10px] text-slate-500">Annual Benefit</p><p className="text-sm font-bold font-mono text-white">{fmt.currency(tax.annualDepreciation)}/yr</p></div>
+              <div className="glass rounded-xl p-3"><p className="text-[10px] text-slate-500">Accumulated</p><p className="text-sm font-bold font-mono text-white">{fmt.currency(tax.accumulatedDepreciation)}</p></div>
+              <div className="glass rounded-xl p-3 col-span-2"><p className="text-[10px] text-slate-500">Recapture on Sale (25%)</p><p className="text-sm font-bold font-mono text-orange-400">{fmt.currency(tax.depreciationRecaptureOnSale)}</p></div>
+            </div>
+            {tax.costSegregationApplicable && (
+              <div className="mt-2 p-2.5 rounded-lg bg-blue-500/5 border border-blue-500/20">
+                <p className="text-xs text-blue-400">Cost segregation applicable — est. Year 1 bonus depreciation: <span className="font-bold font-mono">{fmt.currency(tax.estimatedYear1BonusDepreciation)}</span>. Consult your CPA.</p>
+              </div>
+            )}
+          </div>
+
+          {/* If sold today */}
+          <div>
+            <p className="text-xs font-bold text-amber-400 uppercase tracking-widest mb-2">If Sold Today</p>
+            <div className="space-y-1">
+              {[
+                { label: 'Gross Proceeds', value: fmt.currency(tax.grossProceeds), cls: 'text-white' },
+                { label: '− Agent Fees (6%)', value: `−${fmt.currency(tax.agentFees)}`, cls: 'text-red-400' },
+                { label: '− Federal LTCG Tax', value: `−${fmt.currency(tax.federalLtcgTax)}`, cls: 'text-red-400' },
+                { label: '− Depreciation Recapture', value: `−${fmt.currency(tax.depreciationRecaptureTax)}`, cls: 'text-red-400' },
+                { label: '− State Tax (est.)', value: `−${fmt.currency(tax.statesTaxEstimate)}`, cls: 'text-red-400' },
+              ].map(row => (
+                <div key={row.label} className="flex justify-between text-xs py-1 border-b border-white/5">
+                  <span className="text-slate-400">{row.label}</span>
+                  <span className={clsx('font-mono font-semibold', row.cls)}>{row.value}</span>
+                </div>
+              ))}
+              <div className="flex justify-between text-sm pt-2">
+                <span className="text-slate-300 font-semibold">Net After-Tax Proceeds</span>
+                <span className="font-mono font-bold text-amber-400">{fmt.currency(tax.netAfterTaxProceeds)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 1031 */}
+          <div>
+            <p className="text-xs font-bold text-amber-400 uppercase tracking-widest mb-2">1031 Exchange</p>
+            <div className="flex items-center gap-2 mb-2">
+              <span className={clsx('text-xs font-semibold px-2.5 py-1 rounded border', tax.qualifiesFor1031 ? 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30' : 'text-slate-400 bg-white/5 border-white/10')}>
+                {tax.qualifiesFor1031 ? '✓ Eligible' : '✗ Not Eligible'}
+              </span>
+            </div>
+            {tax.qualifiesFor1031 && (
+              <div className="grid grid-cols-2 gap-2">
+                <div className="glass rounded-xl p-3"><p className="text-[10px] text-slate-500">ID Deadline (45 days)</p><p className="text-xs font-semibold text-white">{tax.identificationDeadline}</p></div>
+                <div className="glass rounded-xl p-3"><p className="text-[10px] text-slate-500">Exchange Deadline (180 days)</p><p className="text-xs font-semibold text-white">{tax.exchangeDeadline}</p></div>
+                <div className="glass rounded-xl p-3 col-span-2"><p className="text-[10px] text-slate-500">Min Replacement Value</p><p className="text-sm font-bold font-mono text-white">{fmt.currency(tax.minReplacementValue)}</p></div>
+              </div>
+            )}
+          </div>
+
+          <p className="text-[10px] text-slate-600 leading-relaxed border-t border-white/5 pt-3">{tax.disclaimer}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Holding Form ───────────────────────────────────────────────────────────────
 
 interface HoldingFormData {
   address: string;
@@ -112,6 +350,8 @@ export default function PortfolioPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingHolding, setEditingHolding] = useState<PortfolioHolding | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [showAnalysis, setShowAnalysis] = useState(false);
+  const [showTax, setShowTax] = useState(false);
   const load = async () => {
     const p = await getPortfolio();
     setPortfolio(p);
@@ -364,18 +604,29 @@ export default function PortfolioPage() {
               <div className="glass rounded-xl p-5">
                 <h3 className="text-sm font-semibold text-white mb-3">Quick Actions</h3>
                 <div className="space-y-2">
-                  {[
-                    { icon: RefreshCw, label: 'Model a Refinance', color: 'text-amber-400', onClick: undefined },
-                    { icon: ArrowUpRight, label: 'Run Disposition Analysis', color: 'text-emerald-400', onClick: undefined },
-                    { icon: DollarSign, label: 'Tax & Depreciation View', color: 'text-blue-400', onClick: undefined },
-                    { icon: Building2, label: 'Update Actuals', color: 'text-slate-400', onClick: () => setEditingHolding(active) },
-                  ].map(a => (
-                    <button key={a.label} className="w-full btn-ghost text-sm justify-start gap-3" onClick={a.onClick}>
-                      <a.icon size={14} className={a.color} /> {a.label}
-                    </button>
-                  ))}
+                  <button className="w-full btn-ghost text-sm justify-start gap-3" onClick={() => { setShowAnalysis(a => !a); setShowTax(false); }}>
+                    <ArrowUpRight size={14} className="text-emerald-400" />
+                    {showAnalysis ? 'Hide Analysis' : 'Get Hold/Sell/Refi Analysis'}
+                  </button>
+                  <button className="w-full btn-ghost text-sm justify-start gap-3" onClick={() => { setShowTax(t => !t); setShowAnalysis(false); }}>
+                    <DollarSign size={14} className="text-blue-400" />
+                    {showTax ? 'Hide Tax Analysis' : 'Tax & Exit Analysis'}
+                  </button>
+                  <button className="w-full btn-ghost text-sm justify-start gap-3" onClick={() => { setShowAnalysis(false); setShowTax(false); setEditingHolding(active); }}>
+                    <Building2 size={14} className="text-slate-400" /> Update Actuals
+                  </button>
+                  <button className="w-full btn-ghost text-sm justify-start gap-3" onClick={() => {}}>
+                    <RefreshCw size={14} className="text-amber-400" /> Go to Copilot for Memo
+                  </button>
                 </div>
               </div>
+
+              {showAnalysis && (
+                <AnalysisPanel holdingId={active.id} onClose={() => setShowAnalysis(false)} />
+              )}
+              {showTax && (
+                <TaxPanel holdingId={active.id} onClose={() => setShowTax(false)} />
+              )}
             </div>
           </div>
         </div>
