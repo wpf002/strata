@@ -525,6 +525,44 @@ Goal: make the web app usable in a phone browser before committing to a native R
 - Frontend: **81 vitest pass**, **0 TypeScript errors**
 - No new dependencies
 
+## Sprint 7 — Phase D (National MLS + Portfolio)
+
+### Task 4 — National MLS expansion
+
+- Verified `backend/data/markets.json` already holds all 25 required markets (launch + secondary)
+- `_search_rapidapi` in `property_service` already resolves city/state via the canonical `markets_service.resolve_market`, with a naive fallback that handles free-form queries like "Phoenix AZ" or "Nashville, TN". No code changes needed
+- The mock fallback filters by city/state/zip, so searching Phoenix without a RapidAPI key correctly returns an empty set rather than fake Dallas data
+- **SearchPage** now defaults the `query` to the user's first configured `targetMarkets` entry on first load when no `?q=` URL param is present — fetched once via `/users/me`, never clobbers user picks
+- **MarketPulsePage** selector is now URL-synced:
+  - `/market` — all markets
+  - `/market?market=phoenix-az` — single market by id
+  - `/market?city=Phoenix&state=AZ` — single market via city/state (agent-friendly)
+  - URL updates when the user changes the selector so views are bookmarkable
+
+### Task 9 — Portfolio improvements
+
+- **Net Worth from Real Estate card** at the top of the detail panel:
+  - Current equity · annual cash flow · estimated annual growth · 5-year wealth projection
+  - Projection uses 3% appreciation compounded + flat cash flow + 2% annual paydown estimate — conservative and explicit
+  - Reframes portfolio from "property management" to "wealth building"
+- **Geographic Concentration tile-grid cartogram**:
+  - 50 states + DC laid out in a compact 11×8 tile grid (no map library — pure SVG)
+  - States colored by share of portfolio value: empty <1%, light amber 1–25%, amber 26–50%, red >50%
+  - Lists top 5 states by share with colored pct
+  - Red alert box names every over-concentrated state ("TX above 50% — diversify next acquisition")
+  - Parses state code from the holding address string (last 2-letter uppercase token)
+- **Equity Timeline per holding** (replaces the former static "Portfolio Equity Growth" chart):
+  - Straight-line interpolation from purchase date to today
+  - Stacked: Appreciation (emerald) + Principal Paydown (gold)
+  - Appreciation = current_value − purchase_price; Paydown = (purchase_price × 75% initial loan) − current loan_balance
+  - X axis: months since purchase (capped at 60 data points); Y axis: cumulative equity added
+
+### Test + build verification (Phase D)
+
+- Backend: **99 pytest pass** (no backend changes)
+- Frontend: **81 vitest pass**, **0 TypeScript errors** (one test updated: "Portfolio Equity Growth" → "Equity Timeline")
+- No new dependencies
+
 ## Current Test Status (end of Sprint 6 + Mobile Addendum)
 
 - Frontend: **75 tests passing** (Vitest), **0 TypeScript errors** (`tsc --noEmit`), vite production build clean

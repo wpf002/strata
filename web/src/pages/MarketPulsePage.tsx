@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { TrendingUp, TrendingDown, ChevronDown, ChevronUp, Search, Building } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { clsx } from 'clsx';
 import { fmt } from '../components/UI';
@@ -177,8 +177,24 @@ export default function MarketPulsePage() {
   const [markets, setMarkets] = useState<MarketSummaryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [supported, setSupported] = useState<SupportedMarket[]>([]);
-  const [selectedId, setSelectedId] = useState<string>('all');
   const navigate = useNavigate();
+
+  // URL-synced market selector so views are bookmarkable:
+  //   /market                           → all markets
+  //   /market?market=phoenix-az         → single market by id
+  //   /market?city=Phoenix&state=AZ     → single market by city/state (agent-friendly)
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedId = searchParams.get('market')
+    ?? (searchParams.get('city') && searchParams.get('state')
+        ? `${searchParams.get('city')!.toLowerCase()}-${searchParams.get('state')!.toLowerCase()}`
+        : 'all');
+  const setSelectedId = (id: string) => {
+    if (id === 'all') {
+      setSearchParams({});
+    } else {
+      setSearchParams({ market: id });
+    }
+  };
 
   useEffect(() => {
     fetch(`${BASE_URL}/market/summary`)

@@ -72,7 +72,7 @@ describe('PortfolioPage — render with holdings', () => {
 
   it('renders charts area', async () => {
     renderPortfolio();
-    await waitFor(() => expect(screen.getByText('Portfolio Equity Growth')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Equity Timeline')).toBeInTheDocument());
   });
 });
 

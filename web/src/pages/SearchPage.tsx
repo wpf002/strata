@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 import { Search, Map, List, TrendingUp, SlidersHorizontal, Star, Bell, X, BookmarkCheck, Eye, Zap, ChevronDown, Flame, GitCompareArrows } from 'lucide-react';
 import {
   getProperties, getSavedSearches, createSavedSearch, getWatchlists, createWatchlist,
@@ -109,6 +110,28 @@ export default function SearchPage() {
     strategies: ['LTR'],
     offMarketOnly: false,
   });
+
+  // Default query from the user's strategy settings — only when no URL query
+  // is present, and only on first load (don't clobber the user's picks).
+  const defaultedFromProfile = useRef(false);
+  useEffect(() => {
+    if (urlQuery || defaultedFromProfile.current) return;
+    defaultedFromProfile.current = true;
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token;
+        if (!token) return;
+        const BASE = import.meta.env.VITE_API_URL ?? '';
+        const res = await fetch(`${BASE}/users/me`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) return;
+        const profile = await res.json();
+        const targets: string = profile.strategySettings?.targetMarkets ?? '';
+        const first = targets.split(',')[0]?.trim();
+        if (first) setFilters(f => ({ ...f, query: first }));
+      } catch { /* silent — just stay on Dallas default */ }
+    })();
+  }, [urlQuery]);
 
   // Supported-markets dropdown
   const [markets, setMarkets] = useState<SupportedMarket[]>([]);
