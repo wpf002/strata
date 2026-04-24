@@ -563,6 +563,46 @@ Goal: make the web app usable in a phone browser before committing to a native R
 - Frontend: **81 vitest pass**, **0 TypeScript errors** (one test updated: "Portfolio Equity Growth" → "Equity Timeline")
 - No new dependencies
 
+## Sprint 7 — Phase E (Copilot prompts + history)
+
+### Task 8A — Context-aware suggested prompts
+
+- When a property is loaded (`?property=…`), the empty-state chips are replaced with:
+  - "Is this a good deal at this price?"
+  - "What's the downside on this property?"
+  - "What offer should I make?"
+  - "Generate an investment memo for this property"
+  - "How does this compare to the Dallas market?"
+- With no property context, chips focus on strategy selection and education:
+  - "What are the best cash flow deals in Dallas right now?"
+  - "Should I invest in Dallas or Phoenix right now?"
+  - "Explain BRRRR strategy to me"
+  - "What markets should I target for STR?"
+  - "How do I evaluate a DSCR loan?"
+
+### Task 8C — Conversation history
+
+- **Migration 013** adds `copilot_conversations` (user_id, property_id, title, messages JSONB, timestamps)
+- Backend `CopilotConversation` model + 4 new routes on existing `/copilot` router:
+  - `POST /copilot/conversations` — upsert (creates if no id, updates if id provided). Auto-derives title from the first 80 chars of the first user message
+  - `GET /copilot/conversations` — list (most recent 20) — summary shape (messageCount only, not full messages) to keep the sidebar cheap
+  - `GET /copilot/conversations/{id}` — full detail with messages
+  - `DELETE /copilot/conversations/{id}`
+- Uses `CamelModel` so the frontend speaks camelCase consistently
+- 8 new pytest covering: create (title derivation), update, 404 when not owned, list summary shape, get full, delete, auth guard
+- **CopilotPage** gets a collapsible history panel (appears below the header when toggled):
+  - Each row: title, message count, date, propertyId tag, delete button
+  - Clicking a row restores the conversation
+  - New header buttons: "New" (fresh conversation) and "History (N)" toggle
+  - Auto-saves after every assistant response, debounced 1.5s so mid-turn edits don't spam the API
+  - Tracks `conversationId` in component state so subsequent saves update the same row
+
+### Test + build verification (Phase E)
+
+- Backend: **107 pytest pass** (99 → 107; +8 conversation tests)
+- Frontend: **81 vitest pass**, **0 TypeScript errors** (one test updated: CopilotPage chip assertion → context-aware copy)
+- No new dependencies
+
 ## Current Test Status (end of Sprint 6 + Mobile Addendum)
 
 - Frontend: **75 tests passing** (Vitest), **0 TypeScript errors** (`tsc --noEmit`), vite production build clean

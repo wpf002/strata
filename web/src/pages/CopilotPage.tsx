@@ -1,10 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Bot, Send, Sparkles, ExternalLink, AlertCircle, FileText, Download, Copy, Check, ChevronDown, ChevronUp, X, UserPlus, Loader2 } from 'lucide-react';
+import { Bot, Send, Sparkles, ExternalLink, AlertCircle, FileText, Download, Copy, Check, ChevronDown, ChevronUp, X, UserPlus, Loader2, History, Trash2, PlusCircle } from 'lucide-react';
 import { clsx } from 'clsx';
 import { mockProperties } from '../data/mockData';
-import { logActivity, listClientPortals, createClientPortal, addPortalProperty } from '../api/client';
-import type { ClientPortalSummary } from '../api/client';
+import {
+  logActivity, listClientPortals, createClientPortal, addPortalProperty,
+  saveCopilotConversation, listCopilotConversations, getCopilotConversation, deleteCopilotConversation,
+} from '../api/client';
+import type { ClientPortalSummary, CopilotConversationSummary } from '../api/client';
 import { supabase } from '../lib/supabase';
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? '';
@@ -32,13 +35,20 @@ const MEMO_SECTIONS: { key: keyof InvestmentMemo; label: string }[] = [
   { key: 'disclaimer', label: 'Disclaimer' },
 ];
 
-const SUGGESTIONS = [
-  'What are the 5 best cash flow deals in Dallas right now?',
-  'Should I buy 4521 Oak Creek Drive?',
-  'What offer should I make on a property listed at $342K?',
-  'How does BRRRR work and is it right for my strategy?',
-  'Compare long-term vs short-term rental for my next purchase',
-  'Which of my portfolio properties should I refinance?',
+const SUGGESTIONS_NO_CONTEXT = [
+  'What are the best cash flow deals in Dallas right now?',
+  'Should I invest in Dallas or Phoenix right now?',
+  'Explain BRRRR strategy to me',
+  'What markets should I target for STR?',
+  'How do I evaluate a DSCR loan?',
+];
+
+const SUGGESTIONS_WITH_PROPERTY = [
+  'Is this a good deal at this price?',
+  "What's the downside on this property?",
+  'What offer should I make?',
+  'Generate an investment memo for this property',
+  'How does this compare to the Dallas market?',
 ];
 
 const BASE_URL_API = import.meta.env.VITE_API_URL ?? '';
@@ -360,8 +370,16 @@ export default function CopilotPage() {
   const [showMemo, setShowMemo] = useState(false);
   const [showSendModal, setShowSendModal] = useState(false);
 
+  // Conversation persistence + history
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [history, setHistory] = useState<CopilotConversationSummary[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const saveDebounceRef = useRef<number | null>(null);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  const suggestions = propertyId ? SUGGESTIONS_WITH_PROPERTY : SUGGESTIONS_NO_CONTEXT;
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isStreaming]);
 
@@ -372,6 +390,64 @@ export default function CopilotPage() {
     copilotAskTracked.current = true;
     logActivity(propertyId, 'copilot_asked');
   }, [propertyId]);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const data = await listCopilotConversations();
+      setHistory(data);
+    } catch {
+      setHistory([]);
+    }
+  }, []);
+
+  useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  // Auto-save the conversation after the assistant finishes responding. Debounced
+  // so a rapid stream of chat turns only writes once the exchange settles.
+  useEffect(() => {
+    if (messages.length === 0 || isStreaming) return;
+    if (saveDebounceRef.current) window.clearTimeout(saveDebounceRef.current);
+    saveDebounceRef.current = window.setTimeout(async () => {
+      try {
+        const saved = await saveCopilotConversation({
+          id: conversationId ?? undefined,
+          propertyId: propertyId ?? null,
+          messages,
+        });
+        setConversationId(saved.id);
+        loadHistory();
+      } catch { /* silent — history is best-effort */ }
+    }, 1500);
+    return () => {
+      if (saveDebounceRef.current) window.clearTimeout(saveDebounceRef.current);
+    };
+  }, [messages, isStreaming, conversationId, propertyId, loadHistory]);
+
+  const restoreConversation = async (id: string) => {
+    try {
+      const conv = await getCopilotConversation(id);
+      setMessages(conv.messages);
+      setConversationId(conv.id);
+      setShowHistory(false);
+      // propertyId is in the URL, not state — let user navigate away if needed
+    } catch { /* silent */ }
+  };
+
+  const newConversation = () => {
+    setMessages([]);
+    setConversationId(null);
+    setInput('');
+    setShowHistory(false);
+  };
+
+  const removeConversation = async (id: string) => {
+    if (!window.confirm('Delete this conversation?')) return;
+    try {
+      await deleteCopilotConversation(id);
+      setHistory(prev => prev.filter(c => c.id !== id));
+      if (conversationId === id) newConversation();
+    } catch { /* silent */ }
+  };
 
   const generateMemo = useCallback(async () => {
     if (!propertyId || memoLoading) return;
@@ -507,6 +583,25 @@ export default function CopilotPage() {
           <p className="text-xs text-slate-500 sm:hidden">AI real estate intelligence</p>
         </div>
         <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={newConversation}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-xs text-slate-400 hover:text-white hover:border-white/20 transition-colors"
+            title="Start new conversation"
+          >
+            <PlusCircle size={12} /> <span className="hidden sm:inline">New</span>
+          </button>
+          <button
+            onClick={() => setShowHistory(s => !s)}
+            className={clsx(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-colors',
+              showHistory
+                ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
+                : 'border-white/10 text-slate-400 hover:text-white hover:border-white/20',
+            )}
+          >
+            <History size={12} /> <span className="hidden sm:inline">History</span>
+            {history.length > 0 && <span className="text-amber-400 font-mono">({history.length})</span>}
+          </button>
           <span className="text-xs text-slate-500 hidden md:inline">Powered by Claude</span>
         </div>
       </div>
@@ -563,6 +658,48 @@ export default function CopilotPage() {
         </div>
       )}
 
+      {/* History panel (collapsible sidebar) */}
+      {showHistory && (
+        <div className="border-b border-white/5 bg-white/3 max-h-72 overflow-y-auto flex-shrink-0">
+          <div className="px-4 md:px-6 py-3">
+            {history.length === 0 ? (
+              <p className="text-xs text-slate-500 py-3 text-center">No past conversations yet.</p>
+            ) : (
+              <div className="space-y-1">
+                {history.map(h => (
+                  <div
+                    key={h.id}
+                    className={clsx(
+                      'flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-colors',
+                      conversationId === h.id
+                        ? 'border-amber-500/40 bg-amber-500/5'
+                        : 'border-white/5 hover:border-white/15 hover:bg-white/3',
+                    )}
+                    onClick={() => restoreConversation(h.id)}
+                  >
+                    <History size={12} className="text-slate-500 flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-white truncate">{h.title}</p>
+                      <p className="text-[10px] text-slate-500">
+                        {h.messageCount} {h.messageCount === 1 ? 'message' : 'messages'} · {new Date(h.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                        {h.propertyId && <span> · {h.propertyId}</span>}
+                      </p>
+                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); removeConversation(h.id); }}
+                      className="text-slate-500 hover:text-red-400 transition-colors"
+                      aria-label="Delete conversation"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 md:py-6">
         {messages.length === 0 ? (
@@ -573,7 +710,7 @@ export default function CopilotPage() {
             <h2 className="text-lg md:text-xl font-semibold text-white mb-2 text-center" style={{ fontFamily: "'DM Serif Display', serif" }}>What would you like to know?</h2>
             <p className="text-slate-500 text-sm mb-6 md:mb-8 text-center max-w-md">Ask about any property, market, or deal. Every answer includes confidence labels and data sources.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl w-full">
-              {SUGGESTIONS.map(s => (
+              {suggestions.map(s => (
                 <button key={s} onClick={() => send(s)} className="text-left p-3.5 rounded-xl border border-white/8 glass hover:border-amber-500/30 hover:bg-amber-500/5 transition-all">
                   <p className="text-sm text-slate-300 leading-snug">{s}</p>
                 </button>

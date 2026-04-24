@@ -25,11 +25,12 @@ describe('CopilotPage — initial state', () => {
     expect(screen.getByText('STRATA Copilot')).toBeInTheDocument();
   });
 
-  it('renders all 6 suggestion chips', () => {
+  it('renders context-aware suggestion chips when no property is loaded', () => {
     renderCopilot();
-    expect(screen.getByText('What are the 5 best cash flow deals in Dallas right now?')).toBeInTheDocument();
-    expect(screen.getByText('Should I buy 4521 Oak Creek Drive?')).toBeInTheDocument();
-    expect(screen.getAllByRole('button').length).toBeGreaterThanOrEqual(6);
+    // No ?property= → no-context suggestions
+    expect(screen.getByText('What are the best cash flow deals in Dallas right now?')).toBeInTheDocument();
+    expect(screen.getByText('Explain BRRRR strategy to me')).toBeInTheDocument();
+    expect(screen.getAllByRole('button').length).toBeGreaterThanOrEqual(5);
   });
 
   it('renders input field and send button', () => {

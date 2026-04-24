@@ -1,16 +1,26 @@
 """
 Copilot router — streams Claude responses via Server-Sent Events,
-and generates structured investment memos.
+generates structured investment memos, and persists conversations so
+agents can reopen past analyses from a history sidebar.
 """
 import json
+import uuid
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 import anthropic
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import desc, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..auth import get_current_user
 from ..config import get_settings
+from ..database import get_db
+from ..models.copilot_conversation import CopilotConversation
+from ..models.user import User
+from ..schemas import CamelModel
 from ..services import property_service
 
 router = APIRouter(prefix="/copilot")
@@ -228,3 +238,136 @@ Risk Flags: {flags}
         }
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Claude API error: {exc}")
+
+
+# ── Conversation history ─────────────────────────────────────────────────────
+
+class ConversationSaveRequest(CamelModel):
+    id: str | None = None  # When set, upserts (updates existing); when None, creates
+    property_id: str | None = None
+    messages: list[ChatMessage]
+
+
+def _derive_title(messages: list[ChatMessage]) -> str:
+    first_user = next((m for m in messages if m.role == "user"), None)
+    if not first_user:
+        return "New conversation"
+    text = first_user.content.strip().replace("\n", " ")
+    return text[:80] + ("…" if len(text) > 80 else "")
+
+
+@router.post("/conversations")
+async def save_conversation(
+    body: ConversationSaveRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    messages_payload = [{"role": m.role, "content": m.content} for m in body.messages]
+    now = datetime.now(timezone.utc)
+
+    if body.id:
+        try:
+            conv_id = uuid.UUID(body.id)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid conversation id")
+        result = await db.execute(
+            select(CopilotConversation).where(
+                CopilotConversation.id == conv_id,
+                CopilotConversation.user_id == current_user.id,
+            )
+        )
+        conv = result.scalar_one_or_none()
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        conv.messages = messages_payload
+        conv.property_id = body.property_id
+        conv.title = _derive_title(body.messages)
+        conv.updated_at = now
+    else:
+        conv = CopilotConversation(
+            user_id=current_user.id,
+            property_id=body.property_id,
+            title=_derive_title(body.messages),
+            messages=messages_payload,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(conv)
+
+    await db.flush()
+    return {
+        "id": str(conv.id),
+        "title": conv.title,
+        "propertyId": conv.property_id,
+        "messages": conv.messages,
+        "createdAt": conv.created_at.isoformat(),
+        "updatedAt": conv.updated_at.isoformat(),
+    }
+
+
+@router.get("/conversations")
+async def list_conversations(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(CopilotConversation)
+        .where(CopilotConversation.user_id == current_user.id)
+        .order_by(desc(CopilotConversation.updated_at))
+        .limit(20)
+    )
+    rows = result.scalars().all()
+    return [
+        {
+            "id": str(r.id),
+            "title": r.title or "Untitled",
+            "propertyId": r.property_id,
+            "messageCount": len(r.messages or []),
+            "updatedAt": r.updated_at.isoformat(),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/conversations/{conv_id}")
+async def get_conversation(
+    conv_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(CopilotConversation).where(
+            CopilotConversation.id == conv_id,
+            CopilotConversation.user_id == current_user.id,
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {
+        "id": str(conv.id),
+        "title": conv.title or "Untitled",
+        "propertyId": conv.property_id,
+        "messages": conv.messages or [],
+        "createdAt": conv.created_at.isoformat(),
+        "updatedAt": conv.updated_at.isoformat(),
+    }
+
+
+@router.delete("/conversations/{conv_id}", status_code=204)
+async def delete_conversation(
+    conv_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(CopilotConversation).where(
+            CopilotConversation.id == conv_id,
+            CopilotConversation.user_id == current_user.id,
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    await db.delete(conv)
+    await db.flush()

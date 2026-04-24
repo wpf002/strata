@@ -531,6 +531,44 @@ export async function viewPortal(token: string): Promise<PortalPublicView> {
   return get<PortalPublicView>(`/client-portals/view/${token}`);
 }
 
+// ── Copilot Conversations ────────────────────────────────────────────────────
+export interface CopilotConversationSummary {
+  id: string;
+  title: string;
+  propertyId: string | null;
+  messageCount: number;
+  updatedAt: string;
+}
+
+export interface CopilotConversationDetail {
+  id: string;
+  title: string;
+  propertyId: string | null;
+  messages: { role: 'user' | 'assistant'; content: string }[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function saveCopilotConversation(body: {
+  id?: string;
+  propertyId?: string | null;
+  messages: { role: 'user' | 'assistant'; content: string }[];
+}): Promise<CopilotConversationDetail> {
+  return post<CopilotConversationDetail>('/copilot/conversations', body, true);
+}
+
+export async function listCopilotConversations(): Promise<CopilotConversationSummary[]> {
+  return get<CopilotConversationSummary[]>('/copilot/conversations', true);
+}
+
+export async function getCopilotConversation(id: string): Promise<CopilotConversationDetail> {
+  return get<CopilotConversationDetail>(`/copilot/conversations/${id}`, true);
+}
+
+export async function deleteCopilotConversation(id: string): Promise<void> {
+  return del(`/copilot/conversations/${id}`, true);
+}
+
 // ── Demand Signal ────────────────────────────────────────────────────────────
 export interface DemandSignal {
   propertyId: string;
