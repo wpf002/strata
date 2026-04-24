@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Target, Bell, Shield, Save, ChevronRight, Briefcase } from 'lucide-react';
+import { User, Target, Bell, Shield, Save, ChevronRight, Briefcase, Check, CircleDashed } from 'lucide-react';
 import { clsx } from 'clsx';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -30,6 +30,9 @@ async function apiPut<T>(path: string, body: unknown): Promise<T> {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+type NotificationChannel = 'email' | 'push' | 'both' | 'off';
+type NotificationKey = 'savedSearch' | 'priceDrops' | 'portfolio' | 'portalActivity';
+
 interface UserProfile {
   id: string;
   email: string;
@@ -41,10 +44,38 @@ interface UserProfile {
     maxPrice?: number;
     minDealScore?: number;
     minCashOnCash?: number;
+    // Legacy global alert toggles — still honored by the scheduler; new per-type
+    // prefs below override when set.
     emailAlerts?: boolean;
     priceDropAlerts?: boolean;
     alertFrequency?: 'Immediately' | 'Daily' | 'Weekly';
+    notifications?: Partial<Record<NotificationKey, NotificationChannel>>;
+    // Agent profile
+    agentName?: string;
+    brokerageName?: string;
+    licenseNumber?: string;
+    agentPhone?: string;
+    agentWebsite?: string;
+    agentPhotoUrl?: string;
   };
+}
+
+const AGENT_FIELDS: { key: keyof NonNullable<UserProfile['strategySettings']>; label: string; required: boolean }[] = [
+  { key: 'agentName', label: 'Name', required: true },
+  { key: 'brokerageName', label: 'Brokerage', required: true },
+  { key: 'agentPhone', label: 'Phone', required: true },
+  { key: 'agentPhotoUrl', label: 'Photo', required: false },
+  { key: 'licenseNumber', label: 'License #', required: false },
+  { key: 'agentWebsite', label: 'Website', required: false },
+];
+
+function computeProfileCompleteness(s: UserProfile['strategySettings']): { pct: number; done: number; total: number } {
+  const total = AGENT_FIELDS.length;
+  const done = AGENT_FIELDS.filter(f => {
+    const v = (s as Record<string, unknown>)[f.key];
+    return typeof v === 'string' && v.trim().length > 0;
+  }).length;
+  return { pct: Math.round((done / total) * 100), done, total };
 }
 
 const STRATEGIES = ['', 'LTR', 'STR', 'BRRRR', 'Flip', 'House Hack'];
@@ -169,11 +200,25 @@ function StrategySection({ settings, onSave }: {
   );
 }
 
+const NOTIFICATION_ROWS: { key: NotificationKey; label: string; desc: string }[] = [
+  { key: 'savedSearch', label: 'Saved search matches', desc: 'New properties that match your saved searches.' },
+  { key: 'priceDrops', label: 'Price drops on watchlist', desc: 'Watchlisted properties drop in price.' },
+  { key: 'portfolio', label: 'Portfolio alerts', desc: 'Refi / sell triggers on your holdings.' },
+  { key: 'portalActivity', label: 'Client portal activity', desc: 'A client views or favorites something in a portal you shared.' },
+];
+
+const CHANNEL_OPTIONS: { value: NotificationChannel; label: string }[] = [
+  { value: 'email', label: 'Email' },
+  { value: 'push', label: 'Push' },
+  { value: 'both', label: 'Both' },
+  { value: 'off', label: 'Off' },
+];
+
 function AlertsSection({ settings, onSave }: {
   settings: UserProfile['strategySettings'];
   onSave: (s: UserProfile['strategySettings']) => Promise<void>;
 }) {
-  const [form, setForm] = useState({ ...settings });
+  const [form, setForm] = useState({ ...settings, notifications: { ...(settings.notifications ?? {}) } });
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -192,39 +237,48 @@ function AlertsSection({ settings, onSave }: {
     }
   };
 
-  const Toggle = ({ checked, onChange, label, desc }: { checked: boolean; onChange: (v: boolean) => void; label: string; desc: string }) => (
-    <div className="flex items-start justify-between gap-4 py-3 border-b border-white/5 last:border-0">
-      <div>
-        <p className="text-sm text-white">{label}</p>
-        <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
-      </div>
-      <button
-        onClick={() => onChange(!checked)}
-        className={clsx('w-10 h-6 rounded-full transition-colors flex-shrink-0 relative', checked ? 'bg-amber-500' : 'bg-white/10')}
-      >
-        <span className={clsx('absolute top-1 w-4 h-4 rounded-full bg-white transition-all', checked ? 'left-5' : 'left-1')} />
-      </button>
-    </div>
-  );
+  const setChannel = (key: NotificationKey, channel: NotificationChannel) => {
+    setForm(f => ({ ...f, notifications: { ...f.notifications, [key]: channel } }));
+  };
 
   return (
-    <div className="space-y-4 max-w-sm">
-      <div className="glass rounded-xl p-4 border border-white/5">
-        <Toggle
-          checked={form.emailAlerts ?? false}
-          onChange={v => setForm(f => ({ ...f, emailAlerts: v }))}
-          label="Email alerts for saved searches"
-          desc="Get notified when new properties match your saved searches."
-        />
-        <Toggle
-          checked={form.priceDropAlerts ?? false}
-          onChange={v => setForm(f => ({ ...f, priceDropAlerts: v }))}
-          label="Price drop alerts for watchlist"
-          desc="Get notified when a watchlisted property drops in price."
-        />
-      </div>
+    <div className="space-y-5 max-w-lg">
       <div>
-        <label className="text-xs text-slate-400 mb-1.5 block">Alert Frequency</label>
+        <p className="text-sm text-white font-medium mb-1">Per-type delivery</p>
+        <p className="text-xs text-slate-500 mb-3">Choose how each alert reaches you. Push notifications require the STRATA mobile app.</p>
+        <div className="glass rounded-xl border border-white/5 divide-y divide-white/5">
+          {NOTIFICATION_ROWS.map(row => {
+            const current = form.notifications?.[row.key] ?? 'off';
+            return (
+              <div key={row.key} className="p-4">
+                <div className="mb-2.5">
+                  <p className="text-sm text-white">{row.label}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{row.desc}</p>
+                </div>
+                <div className="flex gap-1.5 flex-wrap">
+                  {CHANNEL_OPTIONS.map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setChannel(row.key, opt.value)}
+                      className={clsx(
+                        'text-xs px-3 py-1.5 rounded-lg border transition-colors',
+                        current === opt.value
+                          ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
+                          : 'border-white/10 text-slate-500 hover:border-white/20',
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div>
+        <label className="text-xs text-slate-400 mb-1.5 block">Alert Frequency (saved searches)</label>
         <div className="flex gap-2">
           {(['Immediately', 'Daily', 'Weekly'] as const).map(f => (
             <button key={f} onClick={() => setForm(prev => ({ ...prev, alertFrequency: f }))}
@@ -234,10 +288,48 @@ function AlertsSection({ settings, onSave }: {
           ))}
         </div>
       </div>
+
       {error && <p className="text-xs text-red-400">{error}</p>}
       <button onClick={save} disabled={saving} className="btn-primary text-sm">
         <Save size={14} /> {success ? 'Saved!' : saving ? 'Saving…' : 'Save Preferences'}
       </button>
+    </div>
+  );
+}
+
+function ProfileCompletenessCard({ settings }: { settings: UserProfile['strategySettings'] }) {
+  const { pct, done, total } = computeProfileCompleteness(settings);
+  const barColor = pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-500' : 'bg-orange-500';
+
+  return (
+    <div className="glass rounded-xl p-4 border border-white/8 mb-5">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-sm font-semibold text-white">Your agent profile is {pct}% complete</p>
+        <span className="text-xs font-mono text-slate-400">{done}/{total}</span>
+      </div>
+      <div className="w-full h-1.5 rounded-full bg-white/5 overflow-hidden mb-3">
+        <div className={clsx('h-full transition-all', barColor)} style={{ width: `${pct}%` }} />
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+        {AGENT_FIELDS.map(f => {
+          const v = (settings as Record<string, unknown>)[f.key];
+          const present = typeof v === 'string' && v.trim().length > 0;
+          return (
+            <div key={f.key as string} className="flex items-center gap-2 text-xs">
+              {present
+                ? <Check size={12} className="text-emerald-400 flex-shrink-0" />
+                : <CircleDashed size={12} className="text-slate-600 flex-shrink-0" />
+              }
+              <span className={present ? 'text-slate-300' : 'text-slate-500'}>
+                {f.label}{f.required && !present ? ' *' : ''}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {pct < 100 && (
+        <p className="text-xs text-slate-500 mt-3">Complete your profile to get the best results from branded reports.</p>
+      )}
     </div>
   );
 }
@@ -247,11 +339,12 @@ function AgentProfileSection({ settings, onSave }: {
   onSave: (s: UserProfile['strategySettings']) => Promise<void>;
 }) {
   const [form, setForm] = useState({
-    agentName: (settings as Record<string, string>).agentName ?? '',
-    brokerageName: (settings as Record<string, string>).brokerageName ?? '',
-    licenseNumber: (settings as Record<string, string>).licenseNumber ?? '',
-    agentPhone: (settings as Record<string, string>).agentPhone ?? '',
-    agentWebsite: (settings as Record<string, string>).agentWebsite ?? '',
+    agentName: settings.agentName ?? '',
+    brokerageName: settings.brokerageName ?? '',
+    licenseNumber: settings.licenseNumber ?? '',
+    agentPhone: settings.agentPhone ?? '',
+    agentWebsite: settings.agentWebsite ?? '',
+    agentPhotoUrl: settings.agentPhotoUrl ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -274,33 +367,44 @@ function AgentProfileSection({ settings, onSave }: {
     }
   };
 
+  // Preview uses form state so the bar reacts as the agent fills fields.
+  const previewSettings = { ...settings, ...form };
+
   return (
-    <div className="space-y-4 max-w-sm">
-      <p className="text-xs text-slate-500">These fields pre-fill every CMA and client report you generate.</p>
-      <div>
-        <label className="text-xs text-slate-400 mb-1.5 block">Agent Name</label>
-        <input className="strata-input w-full" value={form.agentName} onChange={set('agentName')} placeholder="Jane Smith" />
+    <div className="max-w-lg">
+      <ProfileCompletenessCard settings={previewSettings} />
+      <div className="space-y-4">
+        <p className="text-xs text-slate-500">These fields pre-fill every CMA and client report you generate.</p>
+        <div>
+          <label className="text-xs text-slate-400 mb-1.5 block">Agent Name</label>
+          <input className="strata-input w-full" value={form.agentName} onChange={set('agentName')} placeholder="Jane Smith" />
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 mb-1.5 block">Brokerage Name</label>
+          <input className="strata-input w-full" value={form.brokerageName} onChange={set('brokerageName')} placeholder="Acme Realty Group" />
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 mb-1.5 block">Phone</label>
+          <input className="strata-input w-full" value={form.agentPhone} onChange={set('agentPhone')} placeholder="(555) 000-0000" />
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 mb-1.5 block">Photo URL</label>
+          <input className="strata-input w-full" value={form.agentPhotoUrl} onChange={set('agentPhotoUrl')} placeholder="https://…/your-headshot.jpg" />
+          <p className="text-[10px] text-slate-600 mt-1">Shown on client portals and branded reports.</p>
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 mb-1.5 block">License Number (optional)</label>
+          <input className="strata-input w-full" value={form.licenseNumber} onChange={set('licenseNumber')} placeholder="TX-1234567" />
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 mb-1.5 block">Website (optional)</label>
+          <input className="strata-input w-full" value={form.agentWebsite} onChange={set('agentWebsite')} placeholder="https://yoursite.com" />
+        </div>
+        {error && <p className="text-xs text-red-400">{error}</p>}
+        <button onClick={save} disabled={saving} className="btn-primary text-sm">
+          <Save size={14} /> {success ? 'Saved!' : saving ? 'Saving…' : 'Save Agent Profile'}
+        </button>
       </div>
-      <div>
-        <label className="text-xs text-slate-400 mb-1.5 block">Brokerage Name</label>
-        <input className="strata-input w-full" value={form.brokerageName} onChange={set('brokerageName')} placeholder="Acme Realty Group" />
-      </div>
-      <div>
-        <label className="text-xs text-slate-400 mb-1.5 block">License Number (optional)</label>
-        <input className="strata-input w-full" value={form.licenseNumber} onChange={set('licenseNumber')} placeholder="TX-1234567" />
-      </div>
-      <div>
-        <label className="text-xs text-slate-400 mb-1.5 block">Phone</label>
-        <input className="strata-input w-full" value={form.agentPhone} onChange={set('agentPhone')} placeholder="(555) 000-0000" />
-      </div>
-      <div>
-        <label className="text-xs text-slate-400 mb-1.5 block">Website (optional)</label>
-        <input className="strata-input w-full" value={form.agentWebsite} onChange={set('agentWebsite')} placeholder="https://yoursite.com" />
-      </div>
-      {error && <p className="text-xs text-red-400">{error}</p>}
-      <button onClick={save} disabled={saving} className="btn-primary text-sm">
-        <Save size={14} /> {success ? 'Saved!' : saving ? 'Saving…' : 'Save Agent Profile'}
-      </button>
     </div>
   );
 }

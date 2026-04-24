@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, X, Users, Copy, Check, ChevronRight, Eye, Star, Share2, BarChart2, FileText, Loader2, Link as LinkIcon, ExternalLink, Archive, FolderKanban } from 'lucide-react';
+import { Plus, X, Users, Copy, Check, ChevronRight, Eye, Star, Share2, BarChart2, FileText, Loader2, Link as LinkIcon, ExternalLink, Archive, FolderKanban, Circle, CheckCircle2, SkipForward, CalendarClock, MessageSquare, Trash2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { fmt, ScoreBadge } from '../components/UI';
 import { supabase } from '../lib/supabase';
 import {
   listClientPortals, createClientPortal, getClientPortal, archiveClientPortal,
   addPortalProperty, removePortalProperty, logActivity,
+  listTransactions, createTransaction, updateTransaction, patchMilestone, deleteTransaction,
 } from '../api/client';
-import type { ClientPortalSummary, ClientPortalDetail } from '../api/client';
+import type { ClientPortalSummary, ClientPortalDetail, ClientTransaction as Txn, TransactionMilestone } from '../api/client';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -934,6 +935,333 @@ function PortalsPanel({
   );
 }
 
+// ── Transactions Tab ──────────────────────────────────────────────────────────
+
+const STATUS_LABELS: Record<Txn['status'], { label: string; color: string }> = {
+  searching: { label: 'Searching', color: 'text-slate-400 bg-white/5 border-white/10' },
+  offer_made: { label: 'Offer Made', color: 'text-blue-400 bg-blue-400/10 border-blue-400/30' },
+  under_contract: { label: 'Under Contract', color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
+  closing: { label: 'Closing', color: 'text-purple-400 bg-purple-400/10 border-purple-400/30' },
+  closed: { label: 'Closed', color: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30' },
+  cancelled: { label: 'Cancelled', color: 'text-red-400 bg-red-400/10 border-red-400/30' },
+};
+
+function NewTransactionModal({
+  client,
+  matches,
+  onClose,
+  onCreated,
+}: {
+  client: Client;
+  matches: MatchProperty[];
+  onClose: () => void;
+  onCreated: (t: Txn) => void;
+}) {
+  const [address, setAddress] = useState('');
+  const [propertyId, setPropertyId] = useState<string | undefined>(undefined);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const pickMatch = (m: MatchProperty) => {
+    setAddress(m.address);
+    setPropertyId(m.id);
+  };
+
+  const submit = async () => {
+    if (!address.trim()) { setError('Enter an address or pick a matching property'); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      const t = await createTransaction(client.id, address.trim(), propertyId);
+      onCreated(t);
+      onClose();
+    } catch {
+      setError('Failed to create transaction.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="glass rounded-2xl w-full max-w-md border border-white/10" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-white">New Transaction</h3>
+            <p className="text-xs text-slate-500">Track a deal for {client.name}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={16} /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          {error && <p className="text-xs text-red-400 p-2 rounded bg-red-400/10 border border-red-400/20">{error}</p>}
+          <div>
+            <label className="text-xs text-slate-400 mb-1 block">Property Address</label>
+            <input
+              className="strata-input w-full"
+              placeholder="4521 Oak Creek Drive, Dallas TX"
+              value={address}
+              onChange={e => { setAddress(e.target.value); setPropertyId(undefined); }}
+            />
+          </div>
+          {matches.length > 0 && (
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Or pick from {client.name}'s matches</label>
+              <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                {matches.slice(0, 6).map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => pickMatch(m)}
+                    className={clsx(
+                      'w-full flex items-center gap-3 p-2 rounded border text-left transition-colors',
+                      propertyId === m.id ? 'border-amber-500/40 bg-amber-500/5' : 'border-white/8 hover:border-white/15',
+                    )}
+                  >
+                    <span className="text-xs text-slate-300 truncate flex-1">{m.address}</span>
+                    <span className="text-xs text-slate-500 font-mono">{fmt.compact(m.price)}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <p className="text-xs text-slate-500">
+            The 8-milestone checklist (Identified → Offer → Contract → Inspection → Appraisal → Loan → Walkthrough → Closed) is seeded automatically.
+          </p>
+          <div className="flex gap-2 pt-1">
+            <button onClick={onClose} className="btn-ghost flex-1 justify-center text-sm">Cancel</button>
+            <button onClick={submit} disabled={saving} className="btn-primary flex-1 justify-center text-sm">
+              {saving ? <><Loader2 size={13} className="animate-spin" /> Creating…</> : 'Create Transaction'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MilestoneRow({
+  milestone,
+  onToggle,
+  onNotes,
+  onSkip,
+}: {
+  milestone: TransactionMilestone;
+  onToggle: () => void;
+  onNotes: (notes: string) => void;
+  onSkip: () => void;
+}) {
+  const [showNotes, setShowNotes] = useState(false);
+  const [notesDraft, setNotesDraft] = useState(milestone.notes ?? '');
+
+  const icon =
+    milestone.status === 'complete' ? <CheckCircle2 size={14} className="text-emerald-400" /> :
+    milestone.status === 'skipped' ? <SkipForward size={14} className="text-slate-500" /> :
+    <Circle size={14} className="text-slate-500" />;
+
+  const labelClass = clsx(
+    'text-sm flex-1 cursor-pointer transition-colors',
+    milestone.status === 'complete' && 'text-emerald-300',
+    milestone.status === 'skipped' && 'text-slate-600 line-through',
+    milestone.status === 'pending' && 'text-slate-300 hover:text-white',
+  );
+
+  return (
+    <div className="border-b border-white/5 last:border-b-0">
+      <div className="flex items-center gap-3 py-2.5">
+        <button onClick={onToggle} className="flex-shrink-0" aria-label="Toggle milestone">
+          {icon}
+        </button>
+        <span className={labelClass} onClick={onToggle}>{milestone.label}</span>
+        {milestone.completedDate && (
+          <span className="text-[10px] text-slate-600 font-mono">
+            {new Date(milestone.completedDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+          </span>
+        )}
+        <button onClick={() => setShowNotes(s => !s)} className="text-slate-500 hover:text-amber-400 transition-colors" aria-label="Add notes">
+          <MessageSquare size={12} />
+        </button>
+        {milestone.status !== 'skipped' && (
+          <button onClick={onSkip} className="text-slate-500 hover:text-slate-300 transition-colors" aria-label="Skip milestone">
+            <SkipForward size={12} />
+          </button>
+        )}
+      </div>
+      {(showNotes || milestone.notes) && (
+        <div className="ml-7 mb-2 flex gap-2">
+          <textarea
+            value={notesDraft}
+            onChange={e => setNotesDraft(e.target.value)}
+            onBlur={() => { if (notesDraft !== milestone.notes) onNotes(notesDraft); }}
+            placeholder="Add notes…"
+            className="strata-input w-full text-xs resize-none"
+            rows={2}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TransactionCard({
+  clientId,
+  transaction,
+  onChanged,
+}: {
+  clientId: string;
+  transaction: Txn;
+  onChanged: () => void;
+}) {
+  const statusInfo = STATUS_LABELS[transaction.status];
+
+  const onToggle = async (m: TransactionMilestone) => {
+    const next = m.status === 'complete' ? 'pending' : 'complete';
+    await patchMilestone(clientId, transaction.id, m.id, { status: next });
+    onChanged();
+  };
+
+  const onSkip = async (m: TransactionMilestone) => {
+    const next = m.status === 'skipped' ? 'pending' : 'skipped';
+    await patchMilestone(clientId, transaction.id, m.id, { status: next });
+    onChanged();
+  };
+
+  const onNotes = async (m: TransactionMilestone, notes: string) => {
+    await patchMilestone(clientId, transaction.id, m.id, { notes });
+    onChanged();
+  };
+
+  const setStatus = async (status: Txn['status']) => {
+    await updateTransaction(clientId, transaction.id, { status });
+    onChanged();
+  };
+
+  const onDelete = async () => {
+    if (!window.confirm('Delete this transaction? This cannot be undone.')) return;
+    await deleteTransaction(clientId, transaction.id);
+    onChanged();
+  };
+
+  return (
+    <div className="glass rounded-xl border border-white/8 p-4">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-white truncate">{transaction.propertyAddress}</p>
+          <p className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
+            <CalendarClock size={11} />
+            Opened {new Date(transaction.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+          </p>
+        </div>
+        <span className={clsx('text-xs font-semibold px-2 py-0.5 rounded border flex-shrink-0', statusInfo.color)}>
+          {statusInfo.label}
+        </span>
+      </div>
+
+      {/* Progress */}
+      <div className="mb-3">
+        <div className="flex items-center justify-between mb-1 text-xs text-slate-500">
+          <span>{transaction.progressCount} of {transaction.progressTotal} milestones</span>
+          <span className="font-mono text-amber-400">{transaction.progressPct}%</span>
+        </div>
+        <div className="w-full h-1.5 rounded-full bg-white/5 overflow-hidden">
+          <div
+            className="h-full bg-amber-500 transition-all"
+            style={{ width: `${transaction.progressPct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Milestone timeline */}
+      <div className="rounded-lg border border-white/5 px-3 py-1 mb-3">
+        {transaction.milestones.map(m => (
+          <MilestoneRow
+            key={m.id}
+            milestone={m}
+            onToggle={() => onToggle(m)}
+            onSkip={() => onSkip(m)}
+            onNotes={notes => onNotes(m, notes)}
+          />
+        ))}
+      </div>
+
+      {/* Actions */}
+      <div className="flex flex-wrap gap-2">
+        {transaction.status !== 'closed' && (
+          <button onClick={() => setStatus('closed')} className="btn-ghost text-xs py-1.5 px-3">
+            <CheckCircle2 size={11} /> Mark Closed
+          </button>
+        )}
+        {transaction.status !== 'cancelled' && (
+          <button onClick={() => setStatus('cancelled')} className="btn-ghost text-xs py-1.5 px-3">
+            Mark Cancelled
+          </button>
+        )}
+        <button onClick={onDelete} className="btn-ghost text-xs py-1.5 px-3 ml-auto text-slate-500 hover:text-red-400">
+          <Trash2 size={11} /> Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TransactionsPanel({ client, matches }: { client: Client; matches: MatchProperty[] }) {
+  const [txns, setTxns] = useState<Txn[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showNew, setShowNew] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await listTransactions(client.id);
+      setTxns(data);
+    } catch {
+      setTxns([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [client.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div>
+      {showNew && (
+        <NewTransactionModal
+          client={client}
+          matches={matches}
+          onClose={() => setShowNew(false)}
+          onCreated={t => setTxns(prev => [t, ...prev])}
+        />
+      )}
+
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-slate-500">
+          {txns.length} {txns.length === 1 ? 'transaction' : 'transactions'}
+        </p>
+        <button onClick={() => setShowNew(true)} className="btn-primary text-xs py-1.5 px-3">
+          <Plus size={11} /> New Transaction
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="space-y-3">
+          {[1, 2].map(i => <div key={i} className="glass rounded-xl h-40 animate-pulse" />)}
+        </div>
+      ) : txns.length === 0 ? (
+        <div className="glass rounded-xl p-8 text-center">
+          <CalendarClock size={22} className="text-slate-500 mx-auto mb-2" />
+          <p className="text-sm text-slate-400">No active transactions.</p>
+          <p className="text-xs text-slate-600 mt-1">Start one when {client.name} decides to make an offer.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {txns.map(t => (
+            <TransactionCard key={t.id} clientId={client.id} transaction={t} onChanged={load} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function ClientsPage() {
@@ -944,7 +1272,7 @@ export default function ClientsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  const [rightTab, setRightTab] = useState<'matches' | 'activity' | 'portals'>('matches');
+  const [rightTab, setRightTab] = useState<'matches' | 'activity' | 'portals' | 'transactions'>('matches');
   const [clientActivity, setClientActivity] = useState<Record<string, PropertyActivity[]>>({});
   const [cmaProperty, setCmaProperty] = useState<MatchProperty | null>(null);
   const [portals, setPortals] = useState<ClientPortalSummary[]>([]);
@@ -1214,16 +1542,22 @@ export default function ClientsPage() {
               </div>
 
               {/* Tabs */}
-              <div className="flex gap-1 mb-5 border-b border-white/5">
-                {(['matches', 'activity', 'portals'] as const).map(tab => (
-                  <button
-                    key={tab}
-                    onClick={() => setRightTab(tab)}
-                    className={clsx('pb-2.5 px-1 text-sm font-medium transition-all mr-4', rightTab === tab ? 'tab-active' : 'tab-inactive')}
-                  >
-                    {tab === 'matches' ? 'Matching Properties' : tab === 'activity' ? 'Activity Feed' : `Portals${portals.filter(p => p.clientId === active.id).length ? ` (${portals.filter(p => p.clientId === active.id).length})` : ''}`}
-                  </button>
-                ))}
+              <div className="flex gap-1 mb-5 border-b border-white/5 overflow-x-auto">
+                {(['matches', 'activity', 'portals', 'transactions'] as const).map(tab => {
+                  const label = tab === 'matches' ? 'Matching Properties'
+                    : tab === 'activity' ? 'Activity Feed'
+                    : tab === 'portals' ? `Portals${portals.filter(p => p.clientId === active.id).length ? ` (${portals.filter(p => p.clientId === active.id).length})` : ''}`
+                    : 'Transactions';
+                  return (
+                    <button
+                      key={tab}
+                      onClick={() => setRightTab(tab)}
+                      className={clsx('pb-2.5 px-1 text-sm font-medium transition-all mr-4 whitespace-nowrap', rightTab === tab ? 'tab-active' : 'tab-inactive')}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
 
               {rightTab === 'matches' && (
@@ -1286,6 +1620,10 @@ export default function ClientsPage() {
                   matches={matches}
                   onChanged={loadPortals}
                 />
+              )}
+
+              {rightTab === 'transactions' && (
+                <TransactionsPanel client={active} matches={matches} />
               )}
             </>
           ) : (

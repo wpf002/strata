@@ -531,6 +531,75 @@ export async function viewPortal(token: string): Promise<PortalPublicView> {
   return get<PortalPublicView>(`/client-portals/view/${token}`);
 }
 
+// ── Transactions ─────────────────────────────────────────────────────────────
+export interface TransactionMilestone {
+  id: string;
+  label: string;
+  status: 'pending' | 'complete' | 'skipped';
+  targetDate: string | null;
+  completedDate: string | null;
+  notes: string | null;
+}
+
+export interface ClientTransaction {
+  id: string;
+  clientId: string;
+  propertyId: string | null;
+  propertyAddress: string;
+  status: 'searching' | 'offer_made' | 'under_contract' | 'closing' | 'closed' | 'cancelled';
+  milestones: TransactionMilestone[];
+  createdAt: string;
+  updatedAt: string;
+  progressPct: number;
+  progressCount: number;
+  progressTotal: number;
+}
+
+export async function listTransactions(clientId: string): Promise<ClientTransaction[]> {
+  return get<ClientTransaction[]>(`/clients/${clientId}/transactions`, true);
+}
+
+export async function createTransaction(
+  clientId: string,
+  propertyAddress: string,
+  propertyId?: string,
+): Promise<ClientTransaction> {
+  return post<ClientTransaction>(`/clients/${clientId}/transactions`, { propertyAddress, propertyId }, true);
+}
+
+export async function updateTransaction(
+  clientId: string,
+  txnId: string,
+  body: Partial<{ status: string; propertyAddress: string }>,
+): Promise<ClientTransaction> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(await authHeaders()) };
+  const res = await fetch(`${BASE_URL}/clients/${clientId}/transactions/${txnId}`, {
+    method: 'PUT', headers, body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function patchMilestone(
+  clientId: string,
+  txnId: string,
+  milestoneId: string,
+  body: Partial<{ status: 'pending' | 'complete' | 'skipped'; notes: string; targetDate: string }>,
+): Promise<ClientTransaction> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(await authHeaders()) };
+  const res = await fetch(`${BASE_URL}/clients/${clientId}/transactions/${txnId}/milestones/${milestoneId}`, {
+    method: 'PATCH', headers, body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function deleteTransaction(clientId: string, txnId: string): Promise<void> {
+  const headers: Record<string, string> = await authHeaders();
+  const res = await fetch(`${BASE_URL}/clients/${clientId}/transactions/${txnId}`, { method: 'DELETE', headers });
+  if (!res.ok && res.status !== 204) throw new Error(`${res.status}`);
+}
+
 export async function recordPortalActivity(
   token: string,
   body: { propertyId?: string; actionType: string; clientName?: string; clientEmail?: string },

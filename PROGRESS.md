@@ -446,11 +446,51 @@ Goal: make the web app usable in a phone browser before committing to a native R
   - "Create New Portal" — pick a client, optional custom name, one-click portal for this property
   - Success state shows the shareable link with copy button
 
-### Test + build verification
+### Test + build verification (Phase A)
 
 - Backend: **85 pytest pass** (72 existing + 13 new in `test_client_portals.py` covering auth guards, CRUD happy paths, public-view 404, favorite/unfavorite mirror logic, `/activity/remove` delete + no-op)
 - Frontend: **81 vitest pass**, **0 TypeScript errors** (`tsc --noEmit`)
 - No new npm or pip dependencies
+
+## Sprint 7 — Phase B (Transactions + Settings)
+
+### Task 3 — Transaction Timeline per Client
+
+- **Migration 012** adds `client_transactions` (agent_user_id, client_id, property_id/address, status, milestones JSONB, timestamps)
+- Default milestone set seeded on create: Property identified → Offer submitted → Offer accepted → Inspection → Appraisal → Loan approved → Final walkthrough → Closed
+- Routes on existing `/clients` router:
+  - `POST /clients/{id}/transactions` (seeds 8-milestone checklist)
+  - `GET /clients/{id}/transactions`
+  - `PUT /clients/{id}/transactions/{tid}` (status + address)
+  - `PATCH /clients/{id}/transactions/{tid}/milestones/{mid}` (toggle complete/pending/skipped, add notes; auto-stamps completed_date; auto-advances transaction status based on milestone checkmarks)
+  - `DELETE /clients/{id}/transactions/{tid}`
+- 9 new pytest covering: creation seeds 8 milestones, 404 when client belongs to another user, list sort, status/address updates, invalid status rejection, milestone toggle auto-advances status, closing the final milestone sets status to closed, milestone 404, adding notes
+- **ClientsPage new Transactions tab**:
+  - "New Transaction" modal — type address or pick from the client's matching properties
+  - Status badge per card (Searching / Offer Made / Under Contract / Closing / Closed / Cancelled) with color coding
+  - Progress bar + X of N milestone counter
+  - Milestone timeline — click row to toggle complete/pending, skip-forward icon to skip, speech-bubble icon to add notes
+  - "Mark Closed" / "Mark Cancelled" / "Delete" actions
+
+### Task 10 — Settings: Agent Profile + Notifications
+
+- **Profile completeness card** on the Agent Profile section:
+  - Progress bar keyed to 6 fields: Name, Brokerage, Phone, Photo, License #, Website
+  - Color graded (green ≥80%, amber ≥50%, orange below)
+  - Live-updates as the agent types (previews against form state, not persisted state)
+- New **Photo URL** field on agent profile (shown on client portals + branded reports)
+- **Per-type notification preferences** on the Alerts section (Email | Push | Both | Off) for:
+  - Saved search matches
+  - Price drops on watchlist
+  - Portfolio alerts (refi / sell triggers)
+  - Client portal activity (new)
+- Stored in `users.strategy_settings.notifications` JSONB; legacy global toggles still honored by the existing scheduler
+
+### Test + build verification (Phase B)
+
+- Backend: **94 pytest pass** (85 → 94; +9 transaction tests)
+- Frontend: **81 vitest pass**, **0 TypeScript errors**
+- No new dependencies
 
 ## Current Test Status (end of Sprint 6 + Mobile Addendum)
 

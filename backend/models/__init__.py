@@ -5,6 +5,7 @@ from .search import SavedSearch, Watchlist
 from .client import Client
 from .client_activity import ClientActivity
 from .client_portal import ClientPortal, ClientPortalActivity
+from .client_transaction import ClientTransaction
 from .user_property_activity import UserPropertyActivity
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "ClientActivity",
     "ClientPortal",
     "ClientPortalActivity",
+    "ClientTransaction",
     "UserPropertyActivity",
 ]

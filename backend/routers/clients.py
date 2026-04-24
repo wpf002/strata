@@ -3,15 +3,24 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, desc
 from pydantic import BaseModel
 
 from ..auth import get_current_user
 from ..database import get_db
 from ..models.client import Client
 from ..models.client_activity import ClientActivity
+from ..models.client_transaction import ClientTransaction
 from ..models.user import User
 from ..schemas.client import ClientCreate, ClientUpdate, ClientResponse
+from ..schemas.client_transaction import (
+    DEFAULT_MILESTONES,
+    Milestone,
+    MilestonePatch,
+    TransactionCreate,
+    TransactionResponse,
+    TransactionUpdate,
+)
 from ..services.property_service import search_properties, MOCK_PROPERTIES
 from ..schemas.property import PropertyResponse
 
@@ -282,3 +291,206 @@ async def get_client_activity(
 
     output.sort(key=lambda x: x["engagementScore"], reverse=True)
     return output
+
+
+# ── Transactions ─────────────────────────────────────────────────────────────
+
+TRANSACTION_STATUSES = {"searching", "offer_made", "under_contract", "closing", "closed", "cancelled"}
+MILESTONE_STATUSES = {"pending", "complete", "skipped"}
+
+
+def _default_milestone_set() -> list[dict]:
+    return [
+        {
+            "id": f"m{i + 1}",
+            "label": label,
+            "status": "pending",
+            "target_date": None,
+            "completed_date": None,
+            "notes": None,
+        }
+        for i, label in enumerate(DEFAULT_MILESTONES)
+    ]
+
+
+def _transaction_response(t: ClientTransaction) -> TransactionResponse:
+    milestones = [Milestone(**m) for m in (t.milestones or [])]
+    progress_total = sum(1 for m in milestones if m.status != "skipped")
+    progress_count = sum(1 for m in milestones if m.status == "complete")
+    progress_pct = int(round((progress_count / progress_total) * 100)) if progress_total else 0
+    return TransactionResponse(
+        id=str(t.id),
+        client_id=str(t.client_id),
+        property_id=t.property_id,
+        property_address=t.property_address,
+        status=t.status,
+        milestones=milestones,
+        created_at=t.created_at,
+        updated_at=t.updated_at,
+        progress_pct=progress_pct,
+        progress_count=progress_count,
+        progress_total=progress_total,
+    )
+
+
+async def _client_for_user(db: AsyncSession, client_id: uuid.UUID, user_id: uuid.UUID) -> Client:
+    result = await db.execute(
+        select(Client).where(Client.id == client_id, Client.user_id == user_id)
+    )
+    c = result.scalar_one_or_none()
+    if not c:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return c
+
+
+async def _transaction_for_agent(
+    db: AsyncSession, client_id: uuid.UUID, txn_id: uuid.UUID, user_id: uuid.UUID,
+) -> ClientTransaction:
+    result = await db.execute(
+        select(ClientTransaction).where(
+            ClientTransaction.id == txn_id,
+            ClientTransaction.client_id == client_id,
+            ClientTransaction.agent_user_id == user_id,
+        )
+    )
+    t = result.scalar_one_or_none()
+    if not t:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return t
+
+
+@router.post("/{client_id}/transactions", response_model=TransactionResponse, status_code=201)
+async def create_transaction(
+    client_id: uuid.UUID,
+    body: TransactionCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await _client_for_user(db, client_id, current_user.id)
+
+    now = datetime.now(timezone.utc)
+    t = ClientTransaction(
+        agent_user_id=current_user.id,
+        client_id=client_id,
+        property_id=body.property_id,
+        property_address=body.property_address,
+        status="searching",
+        milestones=_default_milestone_set(),
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(t)
+    await db.flush()
+    return _transaction_response(t)
+
+
+@router.get("/{client_id}/transactions", response_model=list[TransactionResponse])
+async def list_transactions(
+    client_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await _client_for_user(db, client_id, current_user.id)
+
+    result = await db.execute(
+        select(ClientTransaction)
+        .where(
+            ClientTransaction.client_id == client_id,
+            ClientTransaction.agent_user_id == current_user.id,
+        )
+        .order_by(desc(ClientTransaction.updated_at))
+    )
+    return [_transaction_response(t) for t in result.scalars().all()]
+
+
+@router.put("/{client_id}/transactions/{txn_id}", response_model=TransactionResponse)
+async def update_transaction(
+    client_id: uuid.UUID,
+    txn_id: uuid.UUID,
+    body: TransactionUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    t = await _transaction_for_agent(db, client_id, txn_id, current_user.id)
+
+    if body.status is not None:
+        if body.status not in TRANSACTION_STATUSES:
+            raise HTTPException(status_code=422, detail=f"Invalid status. Allowed: {sorted(TRANSACTION_STATUSES)}")
+        t.status = body.status
+    if body.property_address is not None:
+        t.property_address = body.property_address
+    if body.milestones is not None:
+        for m in body.milestones:
+            if m.status not in MILESTONE_STATUSES:
+                raise HTTPException(status_code=422, detail=f"Invalid milestone status '{m.status}'")
+        t.milestones = [m.model_dump() for m in body.milestones]
+
+    await db.flush()
+    return _transaction_response(t)
+
+
+@router.patch("/{client_id}/transactions/{txn_id}/milestones/{milestone_id}", response_model=TransactionResponse)
+async def patch_milestone(
+    client_id: uuid.UUID,
+    txn_id: uuid.UUID,
+    milestone_id: str,
+    body: MilestonePatch,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    t = await _transaction_for_agent(db, client_id, txn_id, current_user.id)
+
+    if body.status is not None and body.status not in MILESTONE_STATUSES:
+        raise HTTPException(status_code=422, detail=f"Invalid milestone status '{body.status}'")
+
+    milestones = list(t.milestones or [])
+    found = False
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for m in milestones:
+        if m.get("id") == milestone_id:
+            found = True
+            if body.status is not None:
+                m["status"] = body.status
+                # Auto-stamp completed_date when marking complete; clear on reopen.
+                if body.status == "complete" and not m.get("completed_date"):
+                    m["completed_date"] = now_iso
+                elif body.status == "pending":
+                    m["completed_date"] = None
+            if body.notes is not None:
+                m["notes"] = body.notes
+            if body.target_date is not None:
+                m["target_date"] = body.target_date
+            if body.completed_date is not None:
+                m["completed_date"] = body.completed_date
+            break
+    if not found:
+        raise HTTPException(status_code=404, detail="Milestone not found")
+
+    # Force SQLAlchemy to detect the mutation of the JSONB list.
+    t.milestones = milestones
+
+    # Auto-advance the transaction status based on milestone completion — gives
+    # agents a useful default they can still override via update_transaction.
+    complete_ids = {m["id"] for m in milestones if m.get("status") == "complete"}
+    if "m8" in complete_ids:
+        t.status = "closed"
+    elif "m7" in complete_ids or "m6" in complete_ids or "m5" in complete_ids:
+        t.status = "closing"
+    elif "m4" in complete_ids or "m3" in complete_ids:
+        t.status = "under_contract"
+    elif "m2" in complete_ids:
+        t.status = "offer_made"
+
+    await db.flush()
+    return _transaction_response(t)
+
+
+@router.delete("/{client_id}/transactions/{txn_id}", status_code=204)
+async def delete_transaction(
+    client_id: uuid.UUID,
+    txn_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    t = await _transaction_for_agent(db, client_id, txn_id, current_user.id)
+    await db.delete(t)
