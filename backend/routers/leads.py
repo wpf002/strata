@@ -16,7 +16,7 @@ from ..auth import get_current_user
 from ..database import get_db
 from ..models.user import User
 from ..models.user_property_activity import UserPropertyActivity
-from ..services.property_service import MOCK_PROPERTIES
+from ..services.property_service import MOCK_PROPERTIES, get_property_by_id
 
 router = APIRouter()
 
@@ -43,19 +43,42 @@ class ActivityDeleteRequest(BaseModel):
     activity_type: str
 
 
-def _property_summary(property_id: str) -> dict:
+def _property_summary_from_mock(property_id: str) -> dict | None:
     mock = next((p for p in MOCK_PROPERTIES if p["id"] == property_id), None)
-    if mock:
-        return {
-            "address": mock.get("address", property_id),
-            "city": mock.get("city"),
-            "state": mock.get("state"),
-            "price": mock.get("price"),
-            "image": mock.get("image"),
-            "dealScore": mock.get("dealScore"),
-        }
+    if not mock:
+        return None
     return {
-        "address": property_id,
+        "address": mock.get("address", property_id),
+        "city": mock.get("city"),
+        "state": mock.get("state"),
+        "price": mock.get("price"),
+        "image": mock.get("image"),
+        "dealScore": mock.get("deal_score"),
+    }
+
+
+async def _property_summary(db, property_id: str) -> dict:
+    """Hydrate a lead's property metadata. Tries DB (real listings cached from
+    RapidAPI) first, falls back to mocks, and finally to a bare placeholder
+    that at least doesn't render a naked id as the 'address'."""
+    try:
+        prop = await get_property_by_id(db, property_id)
+        if prop is not None:
+            return {
+                "address": prop.address or property_id,
+                "city": prop.city,
+                "state": prop.state,
+                "price": prop.price,
+                "image": prop.image,
+                "dealScore": prop.deal_score,
+            }
+    except Exception:
+        pass
+    mock = _property_summary_from_mock(property_id)
+    if mock:
+        return mock
+    return {
+        "address": "Unavailable listing",
         "city": None,
         "state": None,
         "price": None,
@@ -145,13 +168,18 @@ async def list_leads(
     rows = rows_result.scalars().all()
 
     grouped: dict[str, dict] = {}
+    # Hydrate properties up-front so we issue at most one lookup per unique id.
+    unique_ids = {row.property_id for row in rows}
+    summaries: dict[str, dict] = {}
+    for pid in unique_ids:
+        summaries[pid] = await _property_summary(db, pid)
+
     for row in rows:
         pid = row.property_id
         if pid not in grouped:
-            summary = _property_summary(pid)
             grouped[pid] = {
                 "propertyId": pid,
-                **summary,
+                **summaries[pid],
                 "activities": {},
                 "lastActive": None,
                 "engagementScore": 0,

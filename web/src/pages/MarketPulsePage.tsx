@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { TrendingUp, TrendingDown, ChevronDown, ChevronUp, Search, Building } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { clsx } from 'clsx';
 import { fmt } from '../components/UI';
 import { getSupportedMarkets } from '../api/client';
@@ -34,29 +33,29 @@ const REGIME_EXPLANATION: Record<string, string> = {
   "Buyer's Market": 'Excess inventory above 5 months gives buyers maximum leverage. Negotiate aggressively, demand concessions, and require strong cash flow underwriting.',
 };
 
-function generatePriceTrend(endPrice: number, growthPct: number) {
-  const months = ['May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'];
-  const startPrice = endPrice / (1 + growthPct / 100);
-  return months.map((month, i) => ({
-    month,
-    value: Math.round(startPrice + (endPrice - startPrice) * (i / 11)),
-  }));
-}
 
-function generateRentTrend(capRate: number, medianPrice: number, rentGrowthPct: number) {
-  const months = ['May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'];
-  const endRent = Math.round((medianPrice * (capRate / 100)) / 12 * 1.4);
-  const startRent = Math.round(endRent / (1 + rentGrowthPct / 100));
-  return months.map((month, i) => ({
-    month,
-    value: Math.round(startRent + (endRent - startRent) * (i / 11)),
-  }));
+function TrendStat({ label, pct }: { label: string; pct: number }) {
+  const positive = pct >= 0;
+  return (
+    <div className="glass rounded-xl p-3 border border-white/5">
+      <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">{label}</p>
+      <div className="flex items-center gap-2">
+        {positive ? (
+          <TrendingUp size={16} className="text-emerald-400" />
+        ) : (
+          <TrendingDown size={16} className="text-red-400" />
+        )}
+        <p className={clsx('text-lg font-bold font-mono', positive ? 'text-emerald-400' : 'text-red-400')}>
+          {positive ? '+' : ''}{pct.toFixed(1)}%
+        </p>
+      </div>
+      <p className="text-[10px] text-slate-500 mt-0.5">past 12 months</p>
+    </div>
+  );
 }
 
 function MarketCard({ market, onSearch }: { market: MarketSummaryItem; onSearch: (city: string, state: string) => void }) {
   const [expanded, setExpanded] = useState(false);
-  const priceTrend = generatePriceTrend(market.medianPrice, market.priceChange12Mo);
-  const rentTrend = generateRentTrend(market.capRateMedian, market.medianPrice, market.rentGrowth12Mo);
   const positive = market.priceChange12Mo >= 0;
 
   return (
@@ -100,51 +99,18 @@ function MarketCard({ market, onSearch }: { market: MarketSummaryItem; onSearch:
 
       {expanded && (
         <div className="border-t border-white/5 p-5 space-y-5">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <p className="text-xs text-slate-400 font-medium mb-2">
-                Price Trend (12 months)
-                <span className="text-[10px] text-slate-600 font-normal ml-1.5">· estimated from current value + growth %</span>
-              </p>
-              <div className="h-28">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={priceTrend}>
-                    <defs>
-                      <linearGradient id={`pg-${market.city}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={positive ? '#34d399' : '#f87171'} stopOpacity={0.3} />
-                        <stop offset="95%" stopColor={positive ? '#34d399' : '#f87171'} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${Math.round(v / 1000)}k`} />
-                    <Tooltip contentStyle={{ background: '#112240', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }} formatter={(v) => [fmt.currency(Number(v)), 'Median Price']} />
-                    <Area type="monotone" dataKey="value" stroke={positive ? '#34d399' : '#f87171'} strokeWidth={2} fill={`url(#pg-${market.city})`} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
+          {/* Trend summaries: single 12-month % change per dimension. Kept
+              deliberately honest — we don't have historical monthly series
+              wired up yet, so a synthetic area chart would be misleading. */}
+          <div>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">12-Month Changes</p>
+            <div className="grid grid-cols-2 gap-3">
+              <TrendStat label="Median Price" pct={market.priceChange12Mo} />
+              <TrendStat label="Rent Growth" pct={market.rentGrowth12Mo} />
             </div>
-            <div>
-              <p className="text-xs text-slate-400 font-medium mb-2">
-                Rent Trend (12 months)
-                <span className="text-[10px] text-slate-600 font-normal ml-1.5">· estimated from cap rate + rent growth</span>
-              </p>
-              <div className="h-28">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={rentTrend}>
-                    <defs>
-                      <linearGradient id={`rg-${market.city}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#C9A84C" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#C9A84C" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                    <Tooltip contentStyle={{ background: '#112240', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }} formatter={(v) => [fmt.currency(Number(v)), 'Avg Rent']} />
-                    <Area type="monotone" dataKey="value" stroke="#C9A84C" strokeWidth={2} fill={`url(#rg-${market.city})`} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+            <p className="text-[10px] text-slate-600 mt-2">
+              Monthly history not available without a data feed — showing the 12-month change only.
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-sm">

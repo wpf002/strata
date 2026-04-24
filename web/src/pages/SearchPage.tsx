@@ -924,8 +924,8 @@ function ComparisonModal({
 }) {
   if (properties.length === 0) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="glass rounded-2xl w-full max-w-6xl max-h-[92vh] flex flex-col border border-white/10" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="rounded-2xl w-full max-w-6xl max-h-[92vh] flex flex-col border border-white/10 bg-navy-950" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">
           <div>
             <h3 className="text-base font-semibold text-white">Compare Properties</h3>

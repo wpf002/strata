@@ -15,13 +15,15 @@ from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import get_current_user
+from ..auth import get_current_user, get_optional_user
 from ..config import get_settings
 from ..database import get_db
 from ..models.copilot_conversation import CopilotConversation
+from ..models.portfolio import PortfolioHolding
 from ..models.user import User
 from ..schemas import CamelModel
 from ..services import property_service
+from sqlalchemy import select as _select
 
 router = APIRouter(prefix="/copilot")
 
@@ -92,8 +94,65 @@ async def _stream_sse(chunks: AsyncGenerator[str, None]):
     yield "data: [DONE]\n\n"
 
 
+async def _build_user_context(db, user: User | None) -> str:
+    """Summarize the user's strategy + portfolio so Copilot can tailor advice.
+    Returns an empty string when no user is available (public/unauth flow).
+    """
+    if not user:
+        return ""
+    parts: list[str] = []
+    s = user.strategy_settings or {}
+
+    strategy_bits = []
+    if s.get("primaryStrategy"):
+        strategy_bits.append(f"Primary strategy: {s['primaryStrategy']}")
+    if s.get("targetMarkets"):
+        strategy_bits.append(f"Target markets: {s['targetMarkets']}")
+    if s.get("minPrice") or s.get("maxPrice"):
+        lo = f"${s['minPrice']:,}" if s.get("minPrice") else "any"
+        hi = f"${s['maxPrice']:,}" if s.get("maxPrice") else "any"
+        strategy_bits.append(f"Price range: {lo}–{hi}")
+    if s.get("minDealScore") is not None:
+        strategy_bits.append(f"Min deal score: {s['minDealScore']}")
+    if s.get("minCashOnCash") is not None:
+        strategy_bits.append(f"Min cash-on-cash target: {s['minCashOnCash']}%")
+    if strategy_bits:
+        parts.append("User investment profile:\n- " + "\n- ".join(strategy_bits))
+
+    try:
+        result = await db.execute(
+            _select(PortfolioHolding).where(PortfolioHolding.user_id == user.id).limit(8)
+        )
+        holdings = result.scalars().all()
+        if holdings:
+            total_value = sum(h.current_value or 0 for h in holdings)
+            total_cash_flow = sum(h.cash_flow or 0 for h in holdings)
+            lines = [
+                f"Portfolio: {len(holdings)} holdings · total value ${total_value:,} · total monthly cash flow ${total_cash_flow:,}",
+                *[
+                    f"  · {h.address} — value ${h.current_value or 0:,}, equity ${h.equity or 0:,}, CF ${h.cash_flow or 0:,}/mo"
+                    for h in holdings[:5]
+                ],
+            ]
+            parts.append("\n".join(lines))
+    except Exception:
+        # Portfolio enrichment is optional; silent on failure.
+        pass
+
+    if not parts:
+        return ""
+    return (
+        "\n\n---\nThe user's context (use to tailor recommendations; don't repeat verbatim):\n\n"
+        + "\n\n".join(parts)
+    )
+
+
 @router.post("/chat")
-async def chat(body: ChatRequest):
+async def chat(
+    body: ChatRequest,
+    db=Depends(get_db),
+    current_user: User | None = Depends(get_optional_user),
+):
     settings = get_settings()
     if not settings.anthropic_api_key:
         raise HTTPException(status_code=503, detail="Anthropic API key not configured")
@@ -128,6 +187,10 @@ async def chat(body: ChatRequest):
                 + "\n\n"
                 + _SYSTEM_BASE
             )
+
+    # Append user profile + portfolio so Copilot can personalize. Does nothing
+    # for unauthenticated sessions.
+    system_prompt += await _build_user_context(db, current_user)
 
     messages = [{"role": m.role, "content": m.content} for m in body.messages]
 

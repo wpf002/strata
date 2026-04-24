@@ -708,7 +708,10 @@ export default function CopilotPage() {
               <Sparkles size={24} className="text-amber-400" />
             </div>
             <h2 className="text-lg md:text-xl font-semibold text-white mb-2 text-center" style={{ fontFamily: "'DM Serif Display', serif" }}>What would you like to know?</h2>
-            <p className="text-slate-500 text-sm mb-6 md:mb-8 text-center max-w-md">Ask about any property, market, or deal. Every answer includes confidence labels and data sources.</p>
+            <p className="text-slate-500 text-sm mb-2 text-center max-w-md">Ask about any property, market, or deal. Every answer includes confidence labels and data sources.</p>
+            <p className="text-[11px] text-slate-600 mb-6 md:mb-8 text-center max-w-md">
+              Copilot automatically uses your <Link to="/settings" className="text-amber-400 hover:text-amber-300 underline">strategy</Link>, target markets, and <Link to="/portfolio" className="text-amber-400 hover:text-amber-300 underline">portfolio</Link> to tailor answers. Open a property from search to load it as context, or paste details directly into the chat for one-off questions.
+            </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl w-full">
               {suggestions.map(s => (
                 <button key={s} onClick={() => send(s)} className="text-left p-3.5 rounded-xl border border-white/8 glass hover:border-amber-500/30 hover:bg-amber-500/5 transition-all">

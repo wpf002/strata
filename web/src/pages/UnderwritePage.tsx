@@ -707,14 +707,16 @@ export default function UnderwritePage() {
         setProperty(p);
         setInputs(prev => ({ ...prev, purchasePrice: p.price, monthlyRent: p.rentEstMid }));
       })
-      .catch(err => {
-        // Real RapidAPI listings 404 when the backend lacks the API key. Show
-        // a clear inline error and load p1 as a working calculator template.
-        setLoadError(`Couldn't load this property (${err?.message ?? 'unknown error'}). Showing default property — your numbers are still editable.`);
-        getProperty('p1').then(p => {
-          setProperty(p);
-          setInputs(prev => ({ ...prev, purchasePrice: p.price, monthlyRent: p.rentEstMid }));
-        }).catch(() => setLoadError('Backend unreachable. Try again in a moment.'));
+      .catch(() => {
+        // Real RapidAPI listings 404 when the backend lacks the API key.
+        // Silently load p1 as a working calculator template. Only surface an
+        // error banner if even that falls through (backend unreachable).
+        getProperty('p1')
+          .then(p => {
+            setProperty(p);
+            setInputs(prev => ({ ...prev, purchasePrice: p.price, monthlyRent: p.rentEstMid }));
+          })
+          .catch(() => setLoadError('Backend unreachable. Try again in a moment.'));
       });
     logActivity(propertyId, 'underwritten');
   }, [propertyId]);

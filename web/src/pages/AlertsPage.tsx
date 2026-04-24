@@ -112,7 +112,7 @@ export default function AlertsPage() {
                   {watchlists.map(w => (
                     <button
                       key={w.id}
-                      onClick={() => navigate('/')}
+                      onClick={() => navigate('/watchlist')}
                       className="glass rounded-xl px-4 py-3 flex items-center gap-3 w-full text-left hover:bg-white/5 transition-colors"
                     >
                       <Eye size={14} className="text-amber-400 flex-shrink-0" />

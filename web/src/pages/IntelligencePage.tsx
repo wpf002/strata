@@ -192,7 +192,7 @@ export default function IntelligencePage() {
         </div>
         <Skeleton className="h-48 rounded-none" />
         <div className="px-6 py-5 space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 lg:[&>div]:flex lg:[&>div]:flex-col lg:[&>div]:gap-4 lg:[&>div]:space-y-0 lg:[&>div>*:last-child]:flex-1">
             <div className="lg:col-span-2 space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[1,2,3,4].map(i => <Skeleton key={i} className="h-20" />)}
@@ -347,7 +347,7 @@ export default function IntelligencePage() {
         {activeTab === 'Financials' && <FinancialsTab p={property} />}
         {activeTab === 'Valuation' && (
           loadingVal ? (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 lg:[&>div]:flex lg:[&>div]:flex-col lg:[&>div]:gap-4 lg:[&>div]:space-y-0 lg:[&>div>*:last-child]:flex-1">
               <div className="lg:col-span-2 space-y-4"><Skeleton className="h-32" /><Skeleton className="h-48" /></div>
               <div className="space-y-4"><Skeleton className="h-40" /><Skeleton className="h-48" /></div>
             </div>
@@ -355,7 +355,7 @@ export default function IntelligencePage() {
         )}
         {activeTab === 'Risk' && (
           loadingRisk ? (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 lg:[&>div]:flex lg:[&>div]:flex-col lg:[&>div]:gap-4 lg:[&>div]:space-y-0 lg:[&>div>*:last-child]:flex-1">
               <div className="lg:col-span-2 space-y-3">{[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-20" />)}</div>
               <div className="space-y-4"><Skeleton className="h-36" /><Skeleton className="h-36" /></div>
             </div>
@@ -436,7 +436,7 @@ function OfferStrategyTab({ p }: { p: Property }) {
   const recPinPct = Math.max(0, Math.min(100, (result.recommendedOffer - result.offerLow) / barWidth * 100));
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 lg:[&>div]:flex lg:[&>div]:flex-col lg:[&>div]:gap-4 lg:[&>div]:space-y-0 lg:[&>div>*:last-child]:flex-1">
       <div className="lg:col-span-2 space-y-4">
         {/* Urgency selector */}
         <div className="glass rounded-xl p-5">
@@ -655,7 +655,7 @@ function OverviewTab({ p }: { p: Property & { rentEstimate?: any; nearbySchools?
   const schools: any[] = (p as any).nearbySchools ?? [];
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 lg:[&>div]:flex lg:[&>div]:flex-col lg:[&>div]:gap-4 lg:[&>div]:space-y-0 lg:[&>div>*:last-child]:flex-1">
       <div className="lg:col-span-2 space-y-4">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard label="Cap Rate" value={fmt.pct(p.capRate)} sub="at list price" color="gold" />
@@ -844,7 +844,7 @@ function RenovationPotentialCard({ p }: { p: Property }) {
   const totalMid = estimate ? Math.round((estimate.totalLow + estimate.totalHigh) / 2) : 0;
 
   return (
-    <div className="glass rounded-xl p-5 flex flex-col h-full">
+    <div className="glass rounded-xl p-5 flex flex-col">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-white flex items-center gap-2">
           <Hammer size={14} className="text-amber-500" /> Renovation Potential
@@ -918,7 +918,7 @@ function FinancialsTab({ p }: { p: Property }) {
   const dscr = noi / mtg;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 lg:[&>div]:flex lg:[&>div]:flex-col lg:[&>div]:gap-4 lg:[&>div]:space-y-0 lg:[&>div>*:last-child]:flex-1">
       <div className="space-y-4">
         <div className="glass rounded-xl p-5">
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Assumptions</p>
@@ -979,7 +979,7 @@ function ValuationTab({ p, valuation }: { p: Property; valuation: ValuationData 
   const pvFv = ((p.price - fvMid) / fvMid) * 100;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 lg:[&>div]:flex lg:[&>div]:flex-col lg:[&>div]:gap-4 lg:[&>div]:space-y-0 lg:[&>div>*:last-child]:flex-1">
       <div className="lg:col-span-2 space-y-4">
         <div className="glass rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
@@ -1078,7 +1078,7 @@ function RiskTab({ p, riskData }: { p: Property; riskData: RiskData | null }) {
   const flood = riskData?.floodRisk;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 lg:[&>div]:flex lg:[&>div]:flex-col lg:[&>div]:gap-4 lg:[&>div]:space-y-0 lg:[&>div>*:last-child]:flex-1">
       <div className="lg:col-span-2 space-y-3">
         <div className="glass rounded-xl p-5 mb-2">
           <div className="flex items-center justify-between mb-3">
