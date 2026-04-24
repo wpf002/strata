@@ -14,6 +14,7 @@ import AlertsPage from './pages/AlertsPage';
 import ReportPage from './pages/ReportPage';
 import LeadsPage from './pages/LeadsPage';
 import PortalViewPage from './pages/PortalViewPage';
+import WatchlistPage from './pages/WatchlistPage';
 import { useAuth } from './contexts/AuthContext';
 
 export default function App() {
@@ -59,6 +60,7 @@ export default function App() {
                   <Route path="/market" element={<MarketPulsePage />} />
                   <Route path="/clients" element={<ClientsPage />} />
                   <Route path="/leads" element={<LeadsPage />} />
+                  <Route path="/watchlist" element={<WatchlistPage />} />
                   <Route path="/settings" element={<SettingsPage />} />
                   <Route path="/alerts" element={<AlertsPage />} />
                 </Routes>

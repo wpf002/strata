@@ -1,9 +1,9 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Search, BarChart3, Calculator, Briefcase, TrendingUp, Bot, Users, Flame, Settings, Bell, ChevronRight, Zap } from 'lucide-react';
+import { Search, BarChart3, Calculator, Briefcase, TrendingUp, Bot, Users, Flame, Settings, Bell, ChevronRight, Zap, Eye } from 'lucide-react';
 import { clsx } from 'clsx';
 
 const navSections = [
-  { label: 'DISCOVER', items: [{ icon: Search, label: 'Search', path: '/' }, { icon: TrendingUp, label: 'Market Pulse', path: '/market' }] },
+  { label: 'DISCOVER', items: [{ icon: Search, label: 'Search', path: '/' }, { icon: Eye, label: 'Watchlist', path: '/watchlist' }, { icon: TrendingUp, label: 'Market Pulse', path: '/market' }] },
   { label: 'ANALYZE', items: [{ icon: BarChart3, label: 'Intelligence', path: '/intelligence' }, { icon: Calculator, label: 'Underwrite', path: '/underwrite' }] },
   { label: 'OPERATE', items: [{ icon: Briefcase, label: 'Portfolio', path: '/portfolio' }, { icon: Flame, label: 'Leads', path: '/leads' }, { icon: Bot, label: 'Copilot', path: '/copilot' }] },
   { label: 'TEAMS', items: [{ icon: Users, label: 'Clients', path: '/clients' }] },

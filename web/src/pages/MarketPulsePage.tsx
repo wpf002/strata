@@ -102,7 +102,10 @@ function MarketCard({ market, onSearch }: { market: MarketSummaryItem; onSearch:
         <div className="border-t border-white/5 p-5 space-y-5">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <p className="text-xs text-slate-400 font-medium mb-2">Price Trend (12 months)</p>
+              <p className="text-xs text-slate-400 font-medium mb-2">
+                Price Trend (12 months)
+                <span className="text-[10px] text-slate-600 font-normal ml-1.5">· estimated from current value + growth %</span>
+              </p>
               <div className="h-28">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={priceTrend}>
@@ -121,7 +124,10 @@ function MarketCard({ market, onSearch }: { market: MarketSummaryItem; onSearch:
               </div>
             </div>
             <div>
-              <p className="text-xs text-slate-400 font-medium mb-2">Rent Trend (12 months)</p>
+              <p className="text-xs text-slate-400 font-medium mb-2">
+                Rent Trend (12 months)
+                <span className="text-[10px] text-slate-600 font-normal ml-1.5">· estimated from cap rate + rent growth</span>
+              </p>
               <div className="h-28">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={rentTrend}>

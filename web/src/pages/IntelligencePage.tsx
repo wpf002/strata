@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  ArrowLeft, Calculator, Star, Share2, Bell, ChevronRight, MapPin, Info,
+  ArrowLeft, Calculator, Star, Share2, ChevronRight, MapPin, Info,
   ThumbsUp, ThumbsDown, Clock, Home, TrendingUp, Shield, AlertTriangle,
   Landmark, Bot, Droplets, GraduationCap, Target, Send, X, Check, Loader2, Zap, Hammer,
 } from 'lucide-react';
@@ -50,7 +50,6 @@ export default function IntelligencePage() {
   const [isWatched, setIsWatched] = useState(false);
   const [watchlistId, setWatchlistId] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
-  const [alertSet, setAlertSet] = useState(false);
   const [showBriefModal, setShowBriefModal] = useState(false);
   const [briefClientName, setBriefClientName] = useState('');
   const [briefMessage, setBriefMessage] = useState('');
@@ -127,15 +126,24 @@ export default function IntelligencePage() {
     }
   };
 
-  const handleShare = () => {
-    navigator.clipboard.writeText(window.location.href);
-    setShareCopied(true);
-    setTimeout(() => setShareCopied(false), 2000);
-  };
-
-  const handleAlert = () => {
-    setAlertSet(true);
-    setTimeout(() => setAlertSet(false), 2000);
+  const handleShare = async () => {
+    const url = window.location.href;
+    const title = property?.address ?? 'STRATA Property';
+    // Native share sheet on mobile (and supported desktop browsers); falls
+    // back to clipboard everywhere else. Either way the user gets feedback.
+    if (typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title, url, text: `${title} on STRATA` });
+        return;
+      } catch {
+        // user dismissed — fall through to clipboard so the share isn't lost
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch { /* clipboard blocked — silent */ }
   };
 
   useEffect(() => {
@@ -184,7 +192,7 @@ export default function IntelligencePage() {
         </div>
         <Skeleton className="h-48 rounded-none" />
         <div className="px-6 py-5 space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
             <div className="lg:col-span-2 space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[1,2,3,4].map(i => <Skeleton key={i} className="h-20" />)}
@@ -274,9 +282,6 @@ export default function IntelligencePage() {
           <button onClick={handleShare} aria-label="Share" className="btn-ghost text-xs py-1.5 px-2.5 md:px-3">
             <Share2 size={12} /> <span className="hidden md:inline">{shareCopied ? 'Copied!' : 'Share'}</span>
           </button>
-          <button onClick={handleAlert} aria-label="Set alert" className={clsx('btn-ghost text-xs py-1.5 px-2.5 md:px-3', alertSet && 'text-amber-400')}>
-            <Bell size={12} /> <span className="hidden md:inline">{alertSet ? 'Alert Set!' : 'Alert'}</span>
-          </button>
           <button aria-label="Send to client" className="btn-ghost text-xs md:text-sm py-1.5 px-2.5 md:px-3" onClick={() => setShowBriefModal(true)}>
             <Send size={14} /> <span className="hidden lg:inline">Send to Client</span>
           </button>
@@ -342,7 +347,7 @@ export default function IntelligencePage() {
         {activeTab === 'Financials' && <FinancialsTab p={property} />}
         {activeTab === 'Valuation' && (
           loadingVal ? (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
               <div className="lg:col-span-2 space-y-4"><Skeleton className="h-32" /><Skeleton className="h-48" /></div>
               <div className="space-y-4"><Skeleton className="h-40" /><Skeleton className="h-48" /></div>
             </div>
@@ -350,7 +355,7 @@ export default function IntelligencePage() {
         )}
         {activeTab === 'Risk' && (
           loadingRisk ? (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
               <div className="lg:col-span-2 space-y-3">{[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-20" />)}</div>
               <div className="space-y-4"><Skeleton className="h-36" /><Skeleton className="h-36" /></div>
             </div>
@@ -431,7 +436,7 @@ function OfferStrategyTab({ p }: { p: Property }) {
   const recPinPct = Math.max(0, Math.min(100, (result.recommendedOffer - result.offerLow) / barWidth * 100));
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
       <div className="lg:col-span-2 space-y-4">
         {/* Urgency selector */}
         <div className="glass rounded-xl p-5">
@@ -650,7 +655,7 @@ function OverviewTab({ p }: { p: Property & { rentEstimate?: any; nearbySchools?
   const schools: any[] = (p as any).nearbySchools ?? [];
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
       <div className="lg:col-span-2 space-y-4">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard label="Cap Rate" value={fmt.pct(p.capRate)} sub="at list price" color="gold" />
@@ -839,7 +844,7 @@ function RenovationPotentialCard({ p }: { p: Property }) {
   const totalMid = estimate ? Math.round((estimate.totalLow + estimate.totalHigh) / 2) : 0;
 
   return (
-    <div className="glass rounded-xl p-5">
+    <div className="glass rounded-xl p-5 flex flex-col h-full">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-white flex items-center gap-2">
           <Hammer size={14} className="text-amber-500" /> Renovation Potential
@@ -852,39 +857,44 @@ function RenovationPotentialCard({ p }: { p: Property }) {
         </button>
       </div>
 
-      {loading ? (
-        <div className="h-16 glass rounded animate-pulse" />
-      ) : errorMsg ? (
-        <p className="text-xs text-red-400">{errorMsg}</p>
-      ) : estimate ? (
-        <div className="space-y-3">
-          <p className="text-[10px] text-slate-500 uppercase tracking-wide">
-            Quick estimate — cosmetic refresh + kitchen + baths at {estimate.condition} condition
-          </p>
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wide">Budget (mid)</p>
-              <p className="text-lg font-bold font-mono text-amber-400">{fmt.currency(totalMid)}</p>
-              <p className="text-[10px] text-slate-500">{fmt.currency(estimate.totalLow)}–{fmt.currency(estimate.totalHigh)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wide">Cost / sqft</p>
-              <p className="text-lg font-bold font-mono text-white">${estimate.costPerSqftLow}–${estimate.costPerSqftHigh}</p>
-              <p className="text-[10px] text-slate-500">{fmt.num(p.sqft)} sqft</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wide">Projected ARV</p>
-              <p className="text-lg font-bold font-mono text-emerald-400">
-                {estimate.arvLow ? `${fmt.compact(estimate.arvLow)}–${fmt.compact(estimate.arvHigh ?? estimate.arvLow)}` : '—'}
-              </p>
-              <p className="text-[10px] text-slate-500">+{estimate.upliftLowPct}–{estimate.upliftHighPct}% vs current</p>
-            </div>
+      <div className="flex-1 flex flex-col justify-center">
+        {loading ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-6">
+            <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+            <p className="text-[11px] text-slate-500">Estimating renovation cost…</p>
           </div>
-          <p className="text-[10px] text-slate-600 leading-relaxed">
-            For a detailed estimate with full scope selection, use the Renovation tab in Underwrite.
-          </p>
-        </div>
-      ) : null}
+        ) : errorMsg ? (
+          <p className="text-xs text-red-400">{errorMsg}</p>
+        ) : estimate ? (
+          <div className="space-y-3">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wide">
+              Quick estimate — cosmetic refresh + kitchen + baths at {estimate.condition} condition
+            </p>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wide">Budget (mid)</p>
+                <p className="text-lg font-bold font-mono text-amber-400">{fmt.currency(totalMid)}</p>
+                <p className="text-[10px] text-slate-500">{fmt.currency(estimate.totalLow)}–{fmt.currency(estimate.totalHigh)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wide">Cost / sqft</p>
+                <p className="text-lg font-bold font-mono text-white">${estimate.costPerSqftLow}–${estimate.costPerSqftHigh}</p>
+                <p className="text-[10px] text-slate-500">{fmt.num(p.sqft)} sqft</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wide">Projected ARV</p>
+                <p className="text-lg font-bold font-mono text-emerald-400">
+                  {estimate.arvLow ? `${fmt.compact(estimate.arvLow)}–${fmt.compact(estimate.arvHigh ?? estimate.arvLow)}` : '—'}
+                </p>
+                <p className="text-[10px] text-slate-500">+{estimate.upliftLowPct}–{estimate.upliftHighPct}% vs current</p>
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-600 leading-relaxed">
+              For a detailed estimate with full scope selection, use the Renovation tab in Underwrite.
+            </p>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -908,7 +918,7 @@ function FinancialsTab({ p }: { p: Property }) {
   const dscr = noi / mtg;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
       <div className="space-y-4">
         <div className="glass rounded-xl p-5">
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Assumptions</p>
@@ -969,7 +979,7 @@ function ValuationTab({ p, valuation }: { p: Property; valuation: ValuationData 
   const pvFv = ((p.price - fvMid) / fvMid) * 100;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
       <div className="lg:col-span-2 space-y-4">
         <div className="glass rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
@@ -1068,7 +1078,7 @@ function RiskTab({ p, riskData }: { p: Property; riskData: RiskData | null }) {
   const flood = riskData?.floodRisk;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
       <div className="lg:col-span-2 space-y-3">
         <div className="glass rounded-xl p-5 mb-2">
           <div className="flex items-center justify-between mb-3">

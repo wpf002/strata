@@ -698,11 +698,24 @@ export default function UnderwritePage() {
     strategy: 'Long-Term Rental',
   });
 
+  const [loadError, setLoadError] = useState<string | null>(null);
   useEffect(() => {
-    getProperty(propertyId).then(p => {
-      setProperty(p);
-      setInputs(prev => ({ ...prev, purchasePrice: p.price, monthlyRent: p.rentEstMid }));
-    });
+    setLoadError(null);
+    setProperty(null);
+    getProperty(propertyId)
+      .then(p => {
+        setProperty(p);
+        setInputs(prev => ({ ...prev, purchasePrice: p.price, monthlyRent: p.rentEstMid }));
+      })
+      .catch(err => {
+        // Real RapidAPI listings 404 when the backend lacks the API key. Show
+        // a clear inline error and load p1 as a working calculator template.
+        setLoadError(`Couldn't load this property (${err?.message ?? 'unknown error'}). Showing default property — your numbers are still editable.`);
+        getProperty('p1').then(p => {
+          setProperty(p);
+          setInputs(prev => ({ ...prev, purchasePrice: p.price, monthlyRent: p.rentEstMid }));
+        }).catch(() => setLoadError('Backend unreachable. Try again in a moment.'));
+      });
     logActivity(propertyId, 'underwritten');
   }, [propertyId]);
 
@@ -772,7 +785,22 @@ export default function UnderwritePage() {
   };
 
   if (!property || !outputs) {
-    return <div className="flex items-center justify-center h-full"><div className="text-slate-500 text-sm">Loading…</div></div>;
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 px-6 text-center">
+        {loadError ? (
+          <>
+            <p className="text-sm text-red-400 font-medium">Couldn't load property</p>
+            <p className="text-xs text-slate-500 max-w-md">{loadError}</p>
+            <button onClick={() => window.history.back()} className="btn-ghost text-sm mt-2">Go Back</button>
+          </>
+        ) : (
+          <>
+            <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+            <p className="text-slate-500 text-sm">Loading underwriting…</p>
+          </>
+        )}
+      </div>
+    );
   }
 
   const recColor = {
@@ -786,6 +814,11 @@ export default function UnderwritePage() {
 
   return (
     <div className="flex flex-col h-full page-fade overflow-hidden">
+      {loadError && (
+        <div className="px-4 md:px-6 py-2 border-b border-amber-500/20 bg-amber-500/5 text-xs text-amber-400 flex-shrink-0">
+          {loadError}
+        </div>
+      )}
       {/* Header */}
       <div className="px-4 md:px-6 py-3 border-b border-white/5 flex flex-wrap items-center gap-3 md:gap-4 flex-shrink-0">
         <Calculator size={16} className="text-amber-400 flex-shrink-0" />

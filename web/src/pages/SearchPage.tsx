@@ -107,7 +107,7 @@ export default function SearchPage() {
     minDealScore: 0,
     maxPrice: 600000,
     sortBy: 'Deal Score',
-    strategies: ['LTR'],
+    strategies: [],
     offMarketOnly: false,
   });
 
@@ -518,9 +518,10 @@ export default function SearchPage() {
         </div>
       )}
 
-      {/* Floating Compare bar — appears when 1+ properties selected */}
+      {/* Floating Compare bar — appears when 1+ properties selected. z-[2000]
+          keeps it above Leaflet tile layers (which can climb to z-650). */}
       {compareIds.length > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 glass rounded-full border border-amber-500/40 bg-navy-900/90 backdrop-blur px-4 py-2.5 shadow-2xl">
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[2000] flex items-center gap-3 rounded-full border border-amber-500/40 bg-navy-950 px-4 py-2.5 shadow-2xl">
           <GitCompareArrows size={14} className="text-amber-400" />
           <span className="text-sm text-white font-medium">
             Compare <span className="text-amber-400 font-mono">({compareIds.length})</span>
@@ -869,7 +870,7 @@ function PropertyCard({ property: p, index: i, isWatched, isHighlighted, isCompa
             </div>
           </div>
 
-          <div className="hidden md:flex w-32 flex-shrink-0 flex-col items-center justify-center bg-navy-900/40 border-l border-white/5 gap-3 px-3">
+          <div className="hidden md:flex w-32 flex-shrink-0 flex-col items-center justify-center bg-navy-900/40 border-l border-white/5 gap-2 px-3 py-4">
             <div className="text-center">
               <p className="text-[10px] text-slate-500 mb-0.5">Fair Value</p>
               <p className="text-xs font-mono text-white">{fmt.compact(p.fairValueLow)}–{fmt.compact(p.fairValueHigh)}</p>
