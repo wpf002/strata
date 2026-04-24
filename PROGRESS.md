@@ -603,6 +603,79 @@ Goal: make the web app usable in a phone browser before committing to a native R
 - Frontend: **81 vitest pass**, **0 TypeScript errors** (one test updated: CopilotPage chip assertion → context-aware copy)
 - No new dependencies
 
+## Sprint 7 — Phase F (Mobile native scaffolding)
+
+### Task 5 — scaffold ios/ + android/
+
+- Used `@react-native-community/cli@15.0.1` to generate a fresh 0.76.7 project
+  in a throwaway directory, then copied the native dirs into `mobile/`:
+  - `mobile/ios/` — full Xcode project (`StrataApp.xcodeproj`), `Podfile`,
+    `AppDelegate.mm`, `Info.plist`, `LaunchScreen.storyboard`, `PrivacyInfo.xcprivacy`
+  - `mobile/android/` — full Gradle project (`settings.gradle`,
+    `build.gradle`, `app/build.gradle`, `AndroidManifest.xml`, `MainApplication.kt`)
+- Moved placeholder Firebase configs into their canonical native paths:
+  - `mobile/android/app/google-services.json`
+  - `mobile/ios/StrataApp/GoogleService-Info.plist`
+- Copied scaffold's `metro.config.js`, `jest.config.js`, `app.json`, `Gemfile`,
+  and `.gitignore` into `mobile/`
+- Updated `mobile/index.js` to register against `app.json` (not `package.json`) — matches RN 0.76 convention and the native project's registered name
+
+### React Navigation wiring
+
+- New deps in `mobile/package.json`:
+  - `@react-navigation/native` 7.x
+  - `@react-navigation/native-stack` 7.x
+  - `@react-navigation/bottom-tabs` 7.x
+  - `react-native-screens` + `react-native-safe-area-context`
+- Rewrote `mobile/App.tsx` to replace manual tab state with `NavigationContainer`
+  wrapping a bottom tab navigator. Auth flow: no session → LoginScreen; session
+  → three tabs (Search, Portfolio, Copilot). Search tab has a nested native
+  stack so tapping a property pushes IntelligenceScreen
+- Dark theme configured in `NavigationContainer`'s `theme` prop (navy-950 bg,
+  gold-500 accents, DM Sans-compatible font fallbacks)
+
+### Firebase + env config
+
+- Added `@react-native-firebase/app` and `@react-native-firebase/messaging`
+  21.x to `package.json`
+- Rewrote `mobile/src/services/notifications.ts` to use direct ES imports of
+  `messaging` instead of the dynamic `require` fallback
+- Added `react-native-config`; `mobile/src/constants.ts` now reads
+  `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `API_BASE_URL` from it with
+  sensible dev fallbacks
+- Created `mobile/.env.example` (committed) and `mobile/.env` (gitignored)
+
+### Documentation — `mobile/SETUP.md`
+
+Covers every manual step the developer needs on first checkout:
+  1. `npm install`
+  2. Create `.env` from `.env.example`
+  3. iOS — `bundle install` + `pod install` + `run-ios`
+  4. Android — `run-android`
+  5. Replace placeholder Firebase credentials (console setup, app creation,
+     package name + bundle identifier, Gradle plugin wiring, AppDelegate
+     configuration)
+  6. Android release keystore generation
+  7. iOS provisioning / App Store Connect
+  8. Flipping `API_BASE_URL` for TestFlight / release builds
+
+### Test + build verification (Phase F)
+
+- **Mobile TypeScript: 0 errors** (`cd mobile && npx tsc --noEmit` with the
+  RN preset and `lib: [ESNext, DOM]`)
+- Mobile `npm install` succeeds — 845 packages installed
+- Web + backend unchanged from Phase E: 81 vitest, 107 pytest
+- **Native builds not verified on device** — requires a simulator / connected
+  device and real Firebase credentials. The build pipeline is wired and
+  documented; actual `run-ios` / `run-android` is a developer step
+
+### Known follow-ups
+
+- Real Firebase credentials need to be pasted into the placeholder config
+  files before push notifications work on device (see SETUP.md §5)
+- First iOS build needs `bundle install && pod install` (standard RN)
+- Android release signing keystore needs to be generated (SETUP.md §6)
+
 ## Current Test Status (end of Sprint 6 + Mobile Addendum)
 
 - Frontend: **75 tests passing** (Vitest), **0 TypeScript errors** (`tsc --noEmit`), vite production build clean

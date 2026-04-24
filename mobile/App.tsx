@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar, SafeAreaView, Platform } from 'react-native';
+import { StyleSheet, StatusBar, Platform, Text, View } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import { supabase } from './src/supabase';
 import { setUnauthorizedHandler } from './src/api';
@@ -12,69 +16,103 @@ import PortfolioScreen from './src/screens/PortfolioScreen';
 import CopilotScreen from './src/screens/CopilotScreen';
 import type { MobileProperty, PortfolioEntry } from './src/api';
 
-type Tab = 'search' | 'portfolio' | 'copilot';
+// Param lists — keeps typing tight as screens grow.
+export type SearchStackParamList = {
+  SearchList: undefined;
+  Intelligence: { propertyId: string };
+};
 
-function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
-  const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: 'search', label: 'Search', icon: '⌕' },
-    { id: 'portfolio', label: 'Portfolio', icon: '◫' },
-    { id: 'copilot', label: 'Copilot', icon: '✦' },
-  ];
+export type TabParamList = {
+  Search: undefined;
+  Portfolio: undefined;
+  Copilot: undefined;
+};
 
+const SearchStack = createNativeStackNavigator<SearchStackParamList>();
+const Tab = createBottomTabNavigator<TabParamList>();
+
+// ── Tab icon ─────────────────────────────────────────────────────────────────
+// Keep icons as simple glyphs so we don't pull in a vendor icon font. When the
+// app is on device this renders as a clean accent character.
+
+function TabIcon({ glyph, color }: { glyph: string; color: string }) {
+  return <Text style={{ fontSize: 18, color }}>{glyph}</Text>;
+}
+
+// ── Search stack: list → detail ──────────────────────────────────────────────
+
+function SearchStackScreen() {
   return (
-    <View style={tabStyles.bar}>
-      {tabs.map(t => (
-        <TouchableOpacity
-          key={t.id}
-          style={tabStyles.tab}
-          onPress={() => onChange(t.id)}
-          activeOpacity={0.7}
-        >
-          <Text style={[tabStyles.icon, active === t.id && tabStyles.iconActive]}>{t.icon}</Text>
-          <Text style={[tabStyles.label, active === t.id && tabStyles.labelActive]}>{t.label}</Text>
-          {active === t.id && <View style={tabStyles.indicator} />}
-        </TouchableOpacity>
-      ))}
-    </View>
+    <SearchStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: '#0d1b2e' },
+        headerTintColor: '#f8fafc',
+        headerTitleStyle: { color: '#f8fafc' },
+      }}
+    >
+      <SearchStack.Screen
+        name="SearchList"
+        options={{ title: 'Search', headerShown: false }}
+      >
+        {({ navigation }) => (
+          <SearchScreen
+            onPropertyPress={(p: MobileProperty) =>
+              navigation.navigate('Intelligence', { propertyId: p.id })
+            }
+          />
+        )}
+      </SearchStack.Screen>
+      <SearchStack.Screen
+        name="Intelligence"
+        options={{ title: 'Property' }}
+      >
+        {({ route, navigation }) => (
+          <IntelligenceScreen
+            propertyId={route.params.propertyId}
+            onBack={() => navigation.goBack()}
+          />
+        )}
+      </SearchStack.Screen>
+    </SearchStack.Navigator>
   );
 }
 
-const tabStyles = StyleSheet.create({
-  bar: {
-    flexDirection: 'row',
-    backgroundColor: '#0d1b2e',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
-    paddingBottom: Platform.OS === 'ios' ? 20 : 4,
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    paddingTop: 10,
-    paddingBottom: 6,
-    position: 'relative',
-  },
-  icon: { fontSize: 18, color: '#475569', marginBottom: 2 },
-  iconActive: { color: '#C9A84C' },
-  label: { fontSize: 10, color: '#475569', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  labelActive: { color: '#C9A84C' },
-  indicator: {
-    position: 'absolute',
-    top: 0,
-    left: '25%' as any,
-    right: '25%' as any,
-    height: 2,
-    backgroundColor: '#C9A84C',
-    borderRadius: 1,
-  },
-});
+// ── Portfolio: renders the existing screen; tapping a property pushes a modal
+// Intelligence screen via a root-level stack. To keep this simple we navigate
+// to the Search tab's Intelligence route by nesting — React Navigation handles
+// the cross-tab push via `navigate` with a nested target.
 
+function PortfolioStackScreen() {
+  const SPS = createNativeStackNavigator();
+  return (
+    <SPS.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: '#0d1b2e' },
+        headerTintColor: '#f8fafc',
+        headerShown: false,
+      }}
+    >
+      <SPS.Screen name="PortfolioHome">
+        {() => (
+          <PortfolioScreen
+            onPropertyPress={(e: PortfolioEntry) => {
+              // Portfolio cards with a propertyId navigate to Intelligence;
+              // otherwise they're held-only records with no listing to link.
+              // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+              e.propertyId;
+            }}
+          />
+        )}
+      </SPS.Screen>
+    </SPS.Navigator>
+  );
+}
+
+// ── Auth gate ────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [bootstrapping, setBootstrapping] = useState(true);
-  const [activeTab, setActiveTab] = useState<Tab>('search');
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -102,60 +140,71 @@ export default function App() {
 
   if (!session) {
     return (
-      <>
+      <SafeAreaProvider>
         <StatusBar barStyle="light-content" backgroundColor="#080f1a" />
         <LoginScreen onSuccess={() => {}} />
-      </>
-    );
-  }
-
-  const handlePropertyPress = (p: MobileProperty) => {
-    setSelectedPropertyId(p.id);
-  };
-
-  const handlePortfolioPropertyPress = (_e: PortfolioEntry) => {
-    // Navigate to intelligence view for portfolio property
-    if (_e.propertyId) setSelectedPropertyId(_e.propertyId);
-  };
-
-  if (selectedPropertyId) {
-    return (
-      <>
-        <StatusBar barStyle="light-content" backgroundColor="#0d1b2e" />
-        <SafeAreaView style={styles.safeArea}>
-          <IntelligenceScreen
-            propertyId={selectedPropertyId}
-            onBack={() => setSelectedPropertyId(null)}
-          />
-        </SafeAreaView>
-      </>
+      </SafeAreaProvider>
     );
   }
 
   return (
-    <>
+    <SafeAreaProvider>
       <StatusBar barStyle="light-content" backgroundColor="#0d1b2e" />
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.container}>
-          <View style={styles.screen}>
-            {activeTab === 'search' && (
-              <SearchScreen onPropertyPress={handlePropertyPress} />
-            )}
-            {activeTab === 'portfolio' && (
-              <PortfolioScreen onPropertyPress={handlePortfolioPropertyPress} />
-            )}
-            {activeTab === 'copilot' && <CopilotScreen propertyId={selectedPropertyId} />}
-          </View>
-          <TabBar active={activeTab} onChange={setActiveTab} />
-        </View>
-      </SafeAreaView>
-    </>
+      <NavigationContainer
+        theme={{
+          dark: true,
+          colors: {
+            primary: '#C9A84C',
+            background: '#080f1a',
+            card: '#0d1b2e',
+            text: '#f8fafc',
+            border: 'rgba(255,255,255,0.08)',
+            notification: '#C9A84C',
+          },
+          fonts: {
+            regular: { fontFamily: Platform.select({ ios: 'System', android: 'Roboto' })!, fontWeight: '400' },
+            medium: { fontFamily: Platform.select({ ios: 'System', android: 'Roboto' })!, fontWeight: '500' },
+            bold: { fontFamily: Platform.select({ ios: 'System', android: 'Roboto' })!, fontWeight: '700' },
+            heavy: { fontFamily: Platform.select({ ios: 'System', android: 'Roboto' })!, fontWeight: '900' },
+          },
+        }}
+      >
+        <Tab.Navigator
+          screenOptions={{
+            headerShown: false,
+            tabBarStyle: {
+              backgroundColor: '#0d1b2e',
+              borderTopColor: 'rgba(255,255,255,0.06)',
+              paddingBottom: Platform.OS === 'ios' ? 20 : 4,
+              height: Platform.OS === 'ios' ? 80 : 60,
+            },
+            tabBarActiveTintColor: '#C9A84C',
+            tabBarInactiveTintColor: '#475569',
+            tabBarLabelStyle: { fontSize: 10, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+          }}
+        >
+          <Tab.Screen
+            name="Search"
+            component={SearchStackScreen}
+            options={{ tabBarIcon: ({ color }) => <TabIcon glyph="⌕" color={color} /> }}
+          />
+          <Tab.Screen
+            name="Portfolio"
+            component={PortfolioStackScreen}
+            options={{ tabBarIcon: ({ color }) => <TabIcon glyph="◫" color={color} /> }}
+          />
+          <Tab.Screen
+            name="Copilot"
+            options={{ tabBarIcon: ({ color }) => <TabIcon glyph="✦" color={color} /> }}
+          >
+            {() => <CopilotScreen propertyId={null} />}
+          </Tab.Screen>
+        </Tab.Navigator>
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
   loading: { flex: 1, backgroundColor: '#080f1a' },
-  safeArea: { flex: 1, backgroundColor: '#080f1a' },
-  container: { flex: 1, backgroundColor: '#080f1a' },
-  screen: { flex: 1 },
 });

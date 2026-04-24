@@ -1,90 +1,56 @@
 /**
- * Push notification setup via Firebase Cloud Messaging.
+ * Push notification setup via Firebase Cloud Messaging (`@react-native-firebase`).
  *
- * Prerequisites — run before enabling push:
- *   npm install @react-native-firebase/app @react-native-firebase/messaging
- *   npx react-native link (or use autolinking on RN 0.60+)
+ * Native setup (done once per platform):
+ *   - android/app/google-services.json        (real Firebase Android config)
+ *   - ios/StrataApp/GoogleService-Info.plist  (real Firebase iOS config)
+ *   - android/build.gradle:   classpath('com.google.gms:google-services:4.4.2')
+ *   - android/app/build.gradle: apply plugin: 'com.google.gms.google-services'
+ *   - FIREBASE_SERVER_KEY in backend/.env for server-side sends
  *
- * Then:
- *   - Move google-services.json  → android/app/google-services.json
- *   - Move GoogleService-Info.plist → ios/GoogleService-Info.plist
- *   - Set FIREBASE_SERVER_KEY in backend/.env (from Firebase Console > Project Settings > Cloud Messaging)
- *
- * Until @react-native-firebase packages are installed, all calls degrade silently.
+ * The placeholder config files that ship in the repo are sufficient to build,
+ * but sends will no-op on real devices until real Firebase credentials are
+ * populated. See mobile/SETUP.md for the manual replacement steps.
  */
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-declare function require(module: string): any;
 import { Alert, Platform } from 'react-native';
+import messaging from '@react-native-firebase/messaging';
 import { registerPushToken } from '../api';
 
-type FirebaseMessaging = {
-  requestPermission(): Promise<number>;
-  getToken(): Promise<string>;
-  onTokenRefresh(cb: (token: string) => void): () => void;
-  onMessage(cb: (msg: RemoteMessage) => void): () => void;
-  setBackgroundMessageHandler(cb: (msg: RemoteMessage) => Promise<void>): void;
-  AuthorizationStatus: { AUTHORIZED: number; PROVISIONAL: number };
-};
-
-interface RemoteMessage {
-  notification?: { title?: string; body?: string };
-  data?: Record<string, string>;
-}
-
-function getMessaging(): FirebaseMessaging | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require('@react-native-firebase/messaging').default() as FirebaseMessaging;
-  } catch {
-    return null;
-  }
-}
-
-async function _registerToken(messaging: FirebaseMessaging): Promise<void> {
-  const token = await messaging.getToken();
-  if (token) {
-    const platform = Platform.OS === 'android' ? 'android' : 'ios';
-    await registerPushToken(token, platform).catch(() => {});
-  }
-}
-
 export async function setupPushNotifications(): Promise<void> {
-  const messaging = getMessaging();
-  if (!messaging) return;
-
   try {
-    // iOS: explicitly request permission
-    const status = await messaging.requestPermission();
+    // iOS: explicitly request permission. Android 13+ also shows the runtime
+    // prompt; older versions auto-grant.
+    const status = await messaging().requestPermission();
     const authorized =
       status === messaging.AuthorizationStatus.AUTHORIZED ||
       status === messaging.AuthorizationStatus.PROVISIONAL;
-
     if (!authorized) return;
 
-    // Register token with backend
-    await _registerToken(messaging);
+    const token = await messaging().getToken();
+    if (token) {
+      const platform = Platform.OS === 'android' ? 'android' : 'ios';
+      await registerPushToken(token, platform).catch(() => {});
+    }
 
-    // Refresh token handler
-    messaging.onTokenRefresh(async newToken => {
+    messaging().onTokenRefresh(async newToken => {
       const platform = Platform.OS === 'android' ? 'android' : 'ios';
       await registerPushToken(newToken, platform).catch(() => {});
     });
 
-    // Foreground message handler — show in-app banner
-    messaging.onMessage(async remoteMessage => {
+    // Foreground messages show as an in-app alert; tap navigation for
+    // background / quit state is handled by the notification payload itself.
+    messaging().onMessage(async remoteMessage => {
       const title = remoteMessage.notification?.title ?? 'STRATA Alert';
       const body = remoteMessage.notification?.body ?? '';
-      Alert.alert(title, body);
+      if (body) Alert.alert(title, body);
     });
 
-    // Background / quit state handler
-    messaging.setBackgroundMessageHandler(async _remoteMessage => {
-      // Navigation on tap is handled natively via the notification payload.
-      // The data.propertyId field (if present) can be used by the navigator
-      // when the app opens from a killed state.
+    messaging().setBackgroundMessageHandler(async _remoteMessage => {
+      // No-op — native OS renders the notification; data.propertyId (if any)
+      // is available to the app when it opens from the tap.
     });
   } catch {
-    // Graceful degradation — push is best-effort
+    // Push is best-effort. A missing Firebase config or a denied permission
+    // should never crash the app — all other features continue to work.
   }
 }
