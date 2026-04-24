@@ -57,10 +57,11 @@ def _property_summary_from_mock(property_id: str) -> dict | None:
     }
 
 
-async def _property_summary(db, property_id: str) -> dict:
+async def _property_summary(db, property_id: str) -> dict | None:
     """Hydrate a lead's property metadata. Tries DB (real listings cached from
-    RapidAPI) first, falls back to mocks, and finally to a bare placeholder
-    that at least doesn't render a naked id as the 'address'."""
+    RapidAPI) first, then mocks. Returns None when neither resolves so the
+    caller can drop ghost leads (listings that have since vanished or were
+    never persisted) from the response entirely."""
     try:
         prop = await get_property_by_id(db, property_id)
         if prop is not None:
@@ -74,17 +75,7 @@ async def _property_summary(db, property_id: str) -> dict:
             }
     except Exception:
         pass
-    mock = _property_summary_from_mock(property_id)
-    if mock:
-        return mock
-    return {
-        "address": "Unavailable listing",
-        "city": None,
-        "state": None,
-        "price": None,
-        "image": None,
-        "dealScore": None,
-    }
+    return _property_summary_from_mock(property_id)
 
 
 @router.post("/activity", status_code=201)
@@ -169,13 +160,20 @@ async def list_leads(
 
     grouped: dict[str, dict] = {}
     # Hydrate properties up-front so we issue at most one lookup per unique id.
+    # Drop any id that doesn't resolve — those are ghost leads (e.g. RapidAPI
+    # listings that expired) and showing them as "Unavailable" is worse UX than
+    # hiding them.
     unique_ids = {row.property_id for row in rows}
     summaries: dict[str, dict] = {}
     for pid in unique_ids:
-        summaries[pid] = await _property_summary(db, pid)
+        summary = await _property_summary(db, pid)
+        if summary is not None:
+            summaries[pid] = summary
 
     for row in rows:
         pid = row.property_id
+        if pid not in summaries:
+            continue  # ghost lead — skip
         if pid not in grouped:
             grouped[pid] = {
                 "propertyId": pid,
