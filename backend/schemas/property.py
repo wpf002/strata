@@ -7,6 +7,12 @@ class RiskFlag(CamelModel):
     severity: Literal["High", "Medium", "Low"]
 
 
+class OffMarketSignal(CamelModel):
+    type: str
+    label: str
+    severity: Literal["high", "medium", "low"]
+
+
 class PropertyResponse(CamelModel):
     id: str
     address: str
@@ -46,6 +52,8 @@ class PropertyResponse(CamelModel):
     flood_risk: dict | None = None
     nearby_schools: list[dict] | None = None
     rent_estimate: dict | None = None
+    motivation_score: int | None = None
+    off_market_signals: list[OffMarketSignal] = []
 
 
 class ValuationResponse(CamelModel):

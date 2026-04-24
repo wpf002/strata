@@ -101,16 +101,18 @@ export default function SearchScreen({ onPropertyPress }: Props) {
     <View style={styles.container}>
       {/* Search bar */}
       <View style={styles.searchBar}>
-        <TextInput
-          style={styles.searchInput}
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Search city, ZIP, address…"
-          placeholderTextColor="#475569"
-          returnKeyType="search"
-          onSubmitEditing={() => load(query)}
-          clearButtonMode="while-editing"
-        />
+        <View style={styles.searchRow}>
+          <TextInput
+            style={styles.searchInput}
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search city, ZIP, address…"
+            placeholderTextColor="#475569"
+            returnKeyType="search"
+            onSubmitEditing={() => load(query)}
+            clearButtonMode="while-editing"
+          />
+        </View>
       </View>
 
       {/* Error */}
@@ -155,7 +157,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.06)',
   },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   searchInput: {
+    flex: 1,
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderRadius: 10,
     paddingHorizontal: 14,
@@ -165,6 +173,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
+  cameraBtn: {
+    width: 44, height: 44, borderRadius: 10,
+    backgroundColor: 'rgba(201,168,76,0.12)',
+    borderWidth: 1, borderColor: 'rgba(201,168,76,0.35)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  cameraIcon: { fontSize: 20 },
   list: { padding: 16, gap: 12 },
   card: {
     backgroundColor: '#0d1b2e',

@@ -10,7 +10,7 @@ export const mockProperties: Property[] = [
     rentConfidence: 'High', valuationConfidence: 'High', priceVsFairValue: -1.4, strategyFit: 88,
     neighborhood: 'Lake Highlands', neighborhoodScore: 74, marketRegime: 'Balanced',
     riskFlags: [{ label: 'HVAC age est. 14 yrs', severity: 'Medium' }, { label: 'Hail risk — moderate', severity: 'Low' }],
-    image: 'https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=600&q=80',
+    image: 'https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=1200&q=85&auto=format&fit=crop',
     lat: 32.7767, lng: -96.7970,
   },
   {
@@ -22,7 +22,7 @@ export const mockProperties: Property[] = [
     rentConfidence: 'High', valuationConfidence: 'Medium', priceVsFairValue: 0.7, strategyFit: 72,
     neighborhood: 'Lakewood', neighborhoodScore: 81, marketRegime: 'Hot',
     riskFlags: [{ label: 'Roof age est. 18 yrs', severity: 'High' }, { label: 'Tax reassessment likely', severity: 'Medium' }],
-    image: 'https://images.unsplash.com/photo-1570129477492-45c003edd2be?w=600&q=80',
+    image: 'https://images.unsplash.com/photo-1570129477492-45c003edd2be?w=1200&q=85&auto=format&fit=crop',
     lat: 32.7957, lng: -96.7543,
   },
   {
@@ -34,7 +34,7 @@ export const mockProperties: Property[] = [
     rentConfidence: 'Medium', valuationConfidence: 'Medium', priceVsFairValue: 2.1, strategyFit: 58,
     neighborhood: 'White Rock', neighborhoodScore: 69, marketRegime: 'Cooling',
     riskFlags: [{ label: 'HOA reserve underfunded', severity: 'Medium' }, { label: 'Investor saturation 42%', severity: 'Medium' }, { label: 'Permit open — addition 2019', severity: 'High' }],
-    image: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=600&q=80',
+    image: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=1200&q=85&auto=format&fit=crop',
     lat: 32.8212, lng: -96.7021,
   },
   {
@@ -46,7 +46,7 @@ export const mockProperties: Property[] = [
     rentConfidence: 'Low', valuationConfidence: 'Low', priceVsFairValue: 9.2, strategyFit: 28,
     neighborhood: 'Uptown', neighborhoodScore: 88, marketRegime: "Buyer's Market",
     riskFlags: [{ label: 'Negative cash flow at standard financing', severity: 'High' }, { label: 'HOA $620/mo — elevated', severity: 'High' }, { label: 'Priced 9% above fair value', severity: 'High' }, { label: 'STR restrictions active', severity: 'Medium' }],
-    image: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=600&q=80',
+    image: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=1200&q=85&auto=format&fit=crop',
     lat: 32.8031, lng: -96.8099,
   },
   {
@@ -58,7 +58,7 @@ export const mockProperties: Property[] = [
     rentConfidence: 'High', valuationConfidence: 'High', priceVsFairValue: -0.8, strategyFit: 84,
     neighborhood: 'Bishop Arts', neighborhoodScore: 79, marketRegime: 'Hot',
     riskFlags: [{ label: 'Low inventory — move fast', severity: 'Low' }],
-    image: 'https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=600&q=80',
+    image: 'https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=1200&q=85&auto=format&fit=crop',
     lat: 32.7456, lng: -96.8312,
   },
   {
@@ -70,7 +70,7 @@ export const mockProperties: Property[] = [
     rentConfidence: 'High', valuationConfidence: 'High', priceVsFairValue: -0.6, strategyFit: 76,
     neighborhood: 'Farmers Branch', neighborhoodScore: 67, marketRegime: 'Balanced',
     riskFlags: [{ label: 'Declining school rating', severity: 'Medium' }],
-    image: 'https://images.unsplash.com/photo-1598228723793-52759bba239c?w=600&q=80',
+    image: 'https://images.unsplash.com/photo-1598228723793-52759bba239c?w=1200&q=85&auto=format&fit=crop',
     lat: 32.9270, lng: -96.8996,
   },
 ];
@@ -82,7 +82,7 @@ export const mockPortfolioHoldings: PortfolioHolding[] = [
     loanBalance: 228000, equity: 106000, monthlyRent: 2200, monthlyExpenses: 1620,
     cashFlow: 580, capRate: 6.8, status: 'Active', recommendation: 'Hold',
     recommendationNote: 'Strong cash flow. Equity at 31.7% — consider refi in 12 months.',
-    image: 'https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=400&q=80',
+    image: 'https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=1200&q=85&auto=format&fit=crop',
     appreciation: 17.2, totalReturn: 31.4,
   },
   {
@@ -91,7 +91,7 @@ export const mockPortfolioHoldings: PortfolioHolding[] = [
     loanBalance: 158400, equity: 82600, monthlyRent: 1950, monthlyExpenses: 1480,
     cashFlow: 470, capRate: 7.1, status: 'Active', recommendation: 'Refi',
     recommendationNote: 'LTV at 65.7%. Cash-out refi could yield $28K at current rates while maintaining DSCR.',
-    image: 'https://images.unsplash.com/photo-1570129477492-45c003edd2be?w=400&q=80',
+    image: 'https://images.unsplash.com/photo-1570129477492-45c003edd2be?w=1200&q=85&auto=format&fit=crop',
     appreciation: 21.7, totalReturn: 38.9,
   },
   {
@@ -100,7 +100,7 @@ export const mockPortfolioHoldings: PortfolioHolding[] = [
     loanBalance: 272000, equity: 86000, monthlyRent: 2600, monthlyExpenses: 2010,
     cashFlow: 590, capRate: 6.2, status: 'Active', recommendation: 'Hold',
     recommendationNote: 'Stable performer. Phoenix market cooling — hold and collect cash flow.',
-    image: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=400&q=80',
+    image: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=1200&q=85&auto=format&fit=crop',
     appreciation: 5.3, totalReturn: 11.8,
   },
 ];

@@ -3,8 +3,14 @@ Property data layer. Queries the database first; if ATTOM_API_KEY is present,
 enriches with live data. When no DB record exists, falls back to a mock dataset
 so the API never crashes on missing API keys.
 """
+import hashlib
+import json
+import logging
+import re
+import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 from sqlalchemy import select, or_, and_, func
@@ -12,7 +18,81 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..models.property import Property
-from ..schemas.property import PropertyResponse, RiskFlag
+from ..schemas.property import PropertyResponse, RiskFlag, OffMarketSignal
+from . import off_market_service
+from .markets_service import resolve_market
+
+log = logging.getLogger(__name__)
+
+# ── Photo URL upgrader ────────────────────────────────────────────────────────
+# Realtor.com's RDCPIX CDN encodes image size as a single letter before .jpg
+# (t=thumb, s=small, m=medium, l=large, x=xl). The free API returns small
+# thumbnails; we rewrite to x for retina-quality listing cards.
+_RDCPIX_SIZE_RE = re.compile(r"([tsmlx])(\.jpg)$", re.IGNORECASE)
+
+
+def _upgrade_photo_url(url: str | None) -> str | None:
+    if not url:
+        return url
+    if "rdcpix.com" in url:
+        return _RDCPIX_SIZE_RE.sub(r"x\2", url)
+    return url
+
+# ── RapidAPI quota + cache protection ─────────────────────────────────────────
+# Mirrors rent_service: persistent disk cache + monthly counter. Prevents the
+# frontend from burning through quota during filter-tweaking / polling loops.
+_RAPID_DIR = Path(__file__).parent.parent / ".rapidapi"
+_RAPID_DIR.mkdir(exist_ok=True)
+_RAPID_CACHE_FILE = _RAPID_DIR / "search_cache.json"
+_RAPID_USAGE_FILE = _RAPID_DIR / "usage.json"
+_RAPID_CACHE_TTL = 60 * 60          # 60 min — listings change slowly, this dramatically cuts burn from filter tweaking
+RAPIDAPI_MONTHLY_LIMIT = 450         # free tier is typically 500/mo — leave headroom
+
+
+def _rapid_month_key() -> str:
+    t = time.gmtime()
+    return f"{t.tm_year}-{t.tm_mon:02d}"
+
+
+def _rapid_load(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return {}
+
+
+def _rapid_save(path: Path, data: dict) -> None:
+    try:
+        path.write_text(json.dumps(data))
+    except Exception:
+        pass
+
+
+def _rapid_under_quota() -> bool:
+    usage = _rapid_load(_RAPID_USAGE_FILE)
+    return usage.get(_rapid_month_key(), 0) < RAPIDAPI_MONTHLY_LIMIT
+
+
+def _rapid_record_call() -> None:
+    usage = _rapid_load(_RAPID_USAGE_FILE)
+    key = _rapid_month_key()
+    usage[key] = usage.get(key, 0) + 1
+    _rapid_save(_RAPID_USAGE_FILE, usage)
+
+
+def _rapid_cache_key(body: dict) -> str:
+    return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:24]
+
+
+def get_rapidapi_usage() -> dict:
+    """Expose current RapidAPI call count for debugging/admin endpoints."""
+    usage = _rapid_load(_RAPID_USAGE_FILE)
+    return {
+        "month": _rapid_month_key(),
+        "calls_this_month": usage.get(_rapid_month_key(), 0),
+        "limit": RAPIDAPI_MONTHLY_LIMIT,
+        "remaining": max(0, RAPIDAPI_MONTHLY_LIMIT - usage.get(_rapid_month_key(), 0)),
+    }
 
 MOCK_PROPERTIES = [
     {
@@ -26,7 +106,7 @@ MOCK_PROPERTIES = [
         "price_vs_fair_value": -1.4, "strategy_fit": 88,
         "neighborhood": "Lake Highlands", "neighborhood_score": 74, "market_regime": "Balanced",
         "risk_flags": [{"label": "HVAC age est. 14 yrs", "severity": "Medium"}, {"label": "Hail risk — moderate", "severity": "Low"}],
-        "image": "https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=600&q=80",
+        "image": "https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=1200&q=85&auto=format&fit=crop",
         "lat": 32.7767, "lng": -96.7970,
     },
     {
@@ -40,13 +120,14 @@ MOCK_PROPERTIES = [
         "price_vs_fair_value": 0.7, "strategy_fit": 72,
         "neighborhood": "Lakewood", "neighborhood_score": 81, "market_regime": "Hot",
         "risk_flags": [{"label": "Roof age est. 18 yrs", "severity": "High"}, {"label": "Tax reassessment likely", "severity": "Medium"}],
-        "image": "https://images.unsplash.com/photo-1570129477492-45c003edd2be?w=600&q=80",
+        "image": "https://images.unsplash.com/photo-1570129477492-45c003edd2be?w=1200&q=85&auto=format&fit=crop",
         "lat": 32.7957, "lng": -96.7543,
     },
     {
         "id": "p3", "address": "9034 Sunset Ridge Ln", "city": "Dallas", "state": "TX", "zip": "75218",
         "price": 419000, "beds": 4, "baths": 3.0, "sqft": 2280, "lot_sqft": 8100, "year_built": 2008,
-        "type": "Single Family", "status": "Active", "days_on_market": 47,
+        "type": "Single Family", "status": "Active", "days_on_market": 112,
+        "price_reductions": 2, "has_price_reduction": True, "assessed_value": 265000,
         "deal_score": 62, "risk_score": 42, "cap_rate": 4.9, "cash_on_cash": 5.2, "cash_flow": 88,
         "fair_value_low": 388000, "fair_value_high": 421000,
         "rent_est_low": 2450, "rent_est_high": 2780, "rent_est_mid": 2610,
@@ -58,7 +139,7 @@ MOCK_PROPERTIES = [
             {"label": "Investor saturation 42%", "severity": "Medium"},
             {"label": "Permit open — addition 2019", "severity": "High"},
         ],
-        "image": "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=600&q=80",
+        "image": "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=1200&q=85&auto=format&fit=crop",
         "lat": 32.8212, "lng": -96.7021,
     },
     {
@@ -77,7 +158,7 @@ MOCK_PROPERTIES = [
             {"label": "Priced 9% above fair value", "severity": "High"},
             {"label": "STR restrictions active", "severity": "Medium"},
         ],
-        "image": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=600&q=80",
+        "image": "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=1200&q=85&auto=format&fit=crop",
         "lat": 32.8031, "lng": -96.8099,
     },
     {
@@ -91,13 +172,14 @@ MOCK_PROPERTIES = [
         "price_vs_fair_value": -0.8, "strategy_fit": 84,
         "neighborhood": "Bishop Arts", "neighborhood_score": 79, "market_regime": "Hot",
         "risk_flags": [{"label": "Low inventory — move fast", "severity": "Low"}],
-        "image": "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=600&q=80",
+        "image": "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=1200&q=85&auto=format&fit=crop",
         "lat": 32.7456, "lng": -96.8312,
     },
     {
         "id": "p6", "address": "3301 Harvest Glen Dr", "city": "Dallas", "state": "TX", "zip": "75234",
         "price": 312000, "beds": 3, "baths": 2.0, "sqft": 1680, "lot_sqft": 5800, "year_built": 1998,
-        "type": "Single Family", "status": "Active", "days_on_market": 34,
+        "type": "Single Family", "status": "Active", "days_on_market": 98,
+        "has_price_reduction": True,
         "deal_score": 69, "risk_score": 31, "cap_rate": 5.6, "cash_on_cash": 6.0, "cash_flow": 156,
         "fair_value_low": 298000, "fair_value_high": 326000,
         "rent_est_low": 1920, "rent_est_high": 2180, "rent_est_mid": 2050,
@@ -105,7 +187,7 @@ MOCK_PROPERTIES = [
         "price_vs_fair_value": -0.6, "strategy_fit": 76,
         "neighborhood": "Farmers Branch", "neighborhood_score": 67, "market_regime": "Balanced",
         "risk_flags": [{"label": "Declining school rating", "severity": "Medium"}],
-        "image": "https://images.unsplash.com/photo-1598228723793-52759bba239c?w=600&q=80",
+        "image": "https://images.unsplash.com/photo-1598228723793-52759bba239c?w=1200&q=85&auto=format&fit=crop",
         "lat": 32.9270, "lng": -96.8996,
     },
 ]
@@ -159,6 +241,8 @@ async def search_properties(
     min_cap_rate: float | None = None,
     property_types: list[str] | None = None,
     sort_by: str | None = None,
+    off_market_only: bool = False,
+    min_motivation_score: int | None = None,
 ) -> list[PropertyResponse]:
     settings = get_settings()
 
@@ -169,12 +253,14 @@ async def search_properties(
             settings.rapidapi_key,
         )
         if live:
-            return live
+            return _apply_off_market_filter(live, off_market_only, min_motivation_score, sort_by)
 
     if settings.attom_api_key:
-        return await _search_attom(
+        live = await _search_attom(
             query, min_deal_score, max_price, min_cap_rate, property_types, sort_by
         )
+        if live:
+            return _apply_off_market_filter(live, off_market_only, min_motivation_score, sort_by)
 
     results = list(MOCK_PROPERTIES)
 
@@ -210,7 +296,39 @@ async def search_properties(
         key_fn, reverse = sort_map[sort_by]
         results.sort(key=key_fn, reverse=reverse)
 
-    return [_mock_to_response(p) for p in results]
+    responses = [_mock_to_response(p) for p in results]
+    source_by_id = {p["id"]: p for p in results}
+    return _apply_off_market_filter(responses, off_market_only, min_motivation_score, sort_by, source_by_id)
+
+
+def _apply_off_market_filter(
+    props: list[PropertyResponse],
+    off_market_only: bool,
+    min_motivation_score: int | None,
+    sort_by: str | None,
+    source_by_id: dict | None = None,
+) -> list[PropertyResponse]:
+    """Compute motivation score on each result and optionally filter/sort by it.
+
+    Signal detection prefers `source_by_id[p.id]` when available — the raw source
+    dict carries fields (price_reductions, assessed_value, owner_address) that the
+    narrower PropertyResponse schema drops.
+    """
+    enriched: list[PropertyResponse] = []
+    for p in props:
+        source = (source_by_id or {}).get(p.id) or p.model_dump()
+        sig = off_market_service.compute_signals(source)
+        p.motivation_score = sig["motivation_score"]
+        p.off_market_signals = [OffMarketSignal(**s) for s in sig["signals"]] if sig["has_signals"] else []
+        enriched.append(p)
+
+    threshold = min_motivation_score if min_motivation_score is not None else (30 if off_market_only else None)
+    if threshold is not None:
+        enriched = [p for p in enriched if (p.motivation_score or 0) >= threshold]
+
+    if sort_by == "Motivation Score":
+        enriched.sort(key=lambda p: p.motivation_score or 0, reverse=True)
+    return enriched
 
 
 async def get_property_by_id(
@@ -218,7 +336,7 @@ async def get_property_by_id(
 ) -> PropertyResponse | None:
     settings = get_settings()
 
-    # Check DB first
+    # 1. DB by native UUID
     try:
         uid = uuid.UUID(property_id)
         result = await db.execute(select(Property).where(Property.id == uid))
@@ -228,12 +346,26 @@ async def get_property_by_id(
     except ValueError:
         pass
 
-    # Fall back to mock
+    # 2. DB by external_id (RapidAPI property_id) — prevents re-billing on revisit
+    try:
+        result = await db.execute(
+            select(Property).where(Property.data["external_id"].astext == property_id)
+        )
+        prop = result.scalar_one_or_none()
+        if prop:
+            # Preserve the external_id as the returned id so frontend links stay stable
+            resp = _db_to_response(prop)
+            resp.id = property_id
+            return resp
+    except Exception:
+        pass
+
+    # 3. Mock fallback (p1–p6)
     match = next((p for p in MOCK_PROPERTIES if p["id"] == property_id), None)
     if match:
         return _mock_to_response(match)
 
-    # Try RapidAPI detail endpoint
+    # 4. Fresh RapidAPI detail call (only if the above didn't hit)
     if settings.rapidapi_key:
         live = await _fetch_rapidapi_property(property_id, settings.rapidapi_key, db)
         if live:
@@ -277,7 +409,7 @@ def _db_to_response(prop: Property) -> PropertyResponse:
         neighborhood_score=d.get("neighborhood_score"),
         market_regime=d.get("market_regime"),
         risk_flags=[RiskFlag(**f) for f in d.get("risk_flags", [])],
-        image=d.get("image"),
+        image=_upgrade_photo_url(d.get("image")),
         lat=prop.lat,
         lng=prop.lon,
     )
@@ -286,19 +418,32 @@ def _db_to_response(prop: Property) -> PropertyResponse:
 async def _fetch_rapidapi_property(
     property_id: str, api_key: str, db: AsyncSession
 ) -> PropertyResponse | None:
+    # Quota protection — shared with search quota since both consume the same plan.
+    if not _rapid_under_quota():
+        log.warning("RapidAPI quota exhausted; skipping detail fetch for %s", property_id)
+        return None
+
+    # Migrated to POST + JSON body (Apr 2026).
     url = "https://realty-in-us.p.rapidapi.com/properties/v3/detail"
     headers = {
         "X-RapidAPI-Key": api_key,
         "X-RapidAPI-Host": "realty-in-us.p.rapidapi.com",
+        "Content-Type": "application/json",
     }
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(url, params={"property_id": property_id}, headers=headers)
-            resp.raise_for_status()
+            resp = await client.post(url, json={"property_id": property_id}, headers=headers)
+            _rapid_record_call()
+            if resp.status_code == 429:
+                log.warning("RapidAPI detail rate-limited (429)")
+                return None
+            if resp.status_code != 200:
+                log.warning("RapidAPI detail returned %s for %s: %s",
+                            resp.status_code, property_id, resp.text[:200])
+                return None
             data = resp.json()
-    except Exception:
-        import logging
-        logging.getLogger(__name__).warning("RapidAPI detail fetch failed for %s", property_id)
+    except Exception as exc:
+        log.warning("RapidAPI detail call failed for %s: %s", property_id, exc)
         return None
 
     home = (data.get("data") or {}).get("home") or {}
@@ -322,7 +467,7 @@ async def _fetch_rapidapi_property(
         zip_val = addr.get("postal_code") or ""
         lat = float(coord.get("lat") or 0) or None
         lng = float(coord.get("lon") or 0) or None
-        image_href = (home.get("primary_photo") or {}).get("href")
+        image_href = _upgrade_photo_url((home.get("primary_photo") or {}).get("href"))
 
         rent_mid = round(sqft * 1.2 + beds * 80 + baths * 60)
         rent_low = round(rent_mid * 0.88)
@@ -441,33 +586,84 @@ async def _search_rapidapi(
     sort_by: str | None,
     api_key: str,
 ) -> list[PropertyResponse]:
-    parts = [s.strip() for s in (query or "Dallas, TX").replace(",", " ").split() if s.strip()]
-    city = parts[0] if parts else "Dallas"
-    state = parts[1] if len(parts) > 1 else "TX"
-    zip_code = next((p for p in parts if p.isdigit() and len(p) == 5), None)
+    # Parse "City, STATE" or "ZIP"
+    market = resolve_market(query)
+    if market:
+        city, state = market["city"], market["state_code"]
+    else:
+        parts = [s.strip() for s in (query or "Dallas, TX").replace(",", " ").split() if s.strip()]
+        city = parts[0] if parts else "Dallas"
+        state = parts[1] if len(parts) > 1 else "TX"
+    zip_code = None
+    if query:
+        zip_code = next(
+            (p.strip() for p in query.replace(",", " ").split() if p.strip().isdigit() and len(p.strip()) == 5),
+            None,
+        )
 
+    # realty-in-us migrated to POST + JSON body (Apr 2026).
     url = "https://realty-in-us.p.rapidapi.com/properties/v3/list"
-    params: dict = {
-        "city": city,
-        "state_code": state,
+    body: dict = {
         "limit": 20,
         "offset": 0,
-        "sort": "relevance",
+        "status": ["for_sale", "ready_to_build"],
+        "sort": {"direction": "desc", "field": "list_date"},
     }
     if zip_code:
-        params["postal_code"] = zip_code
+        body["postal_code"] = zip_code
+    else:
+        body["city"] = city
+        body["state_code"] = state
+
+    # ── Cache check ──────────────────────────────────────────────────────────
+    # 15-minute TTL on the upstream request body only (same city/state/zip).
+    # We cache UNFILTERED results so that different users applying different
+    # local filters all share the upstream RapidAPI call. Filters + sort are
+    # applied after, whether results come fresh or from cache.
+    cache_key = _rapid_cache_key(body)
+    cache = _rapid_load(_RAPID_CACHE_FILE)
+    entry = cache.get(cache_key)
+    if entry and time.time() - entry["ts"] < _RAPID_CACHE_TTL:
+        try:
+            cached = [PropertyResponse.model_validate(p) for p in entry["data"]]
+            # Cached entries may predate the photo-size upgrade; retro-fix on read.
+            for c in cached:
+                c.image = _upgrade_photo_url(c.image)
+            return _apply_rapidapi_filters_sort(
+                cached, min_deal_score, max_price, min_cap_rate, property_types, sort_by,
+            )
+        except Exception:
+            pass  # fall through to fresh call if the cache shape is stale
+
+    # ── Quota check ──────────────────────────────────────────────────────────
+    if not _rapid_under_quota():
+        usage = get_rapidapi_usage()
+        log.warning(
+            "RapidAPI monthly quota exhausted (%d/%d this month) — falling back",
+            usage["calls_this_month"], usage["limit"],
+        )
+        return []
 
     headers = {
         "X-RapidAPI-Key": api_key,
         "X-RapidAPI-Host": "realty-in-us.p.rapidapi.com",
+        "Content-Type": "application/json",
     }
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(url, params=params, headers=headers)
-            resp.raise_for_status()
+            resp = await client.post(url, json=body, headers=headers)
+            # Record call regardless of outcome — RapidAPI bills on request, not success.
+            _rapid_record_call()
+            if resp.status_code == 429:
+                log.warning("RapidAPI rate-limited (429) — backing off")
+                return []
+            if resp.status_code != 200:
+                log.warning("RapidAPI list returned %s: %s", resp.status_code, resp.text[:200])
+                return []
             data = resp.json()
-    except Exception:
+    except Exception as exc:
+        log.warning("RapidAPI list call failed: %s", exc)
         return []
 
     results_raw = (data.get("data") or {}).get("home_search", {}).get("results") or []
@@ -493,7 +689,7 @@ async def _search_rapidapi(
             zip_val = addr.get("postal_code") or ""
             lat = float(coord.get("lat") or 0) or None
             lng = float(coord.get("lon") or 0) or None
-            image_href = (item.get("primary_photo") or {}).get("href")
+            image_href = _upgrade_photo_url((item.get("primary_photo") or {}).get("href"))
             status = item.get("status") or "Active"
             listed_at = item.get("list_date") or ""
 
@@ -557,15 +753,38 @@ async def _search_rapidapi(
         except Exception:
             continue
 
-    # Filter
+    # Cache the UNFILTERED set (all results from upstream). Then filter+sort.
+    try:
+        cache[cache_key] = {
+            "ts": time.time(),
+            "data": [p.model_dump(mode="json") for p in properties],
+        }
+        _rapid_save(_RAPID_CACHE_FILE, cache)
+    except Exception:
+        pass
+
+    return _apply_rapidapi_filters_sort(
+        properties, min_deal_score, max_price, min_cap_rate, property_types, sort_by,
+    )
+
+
+def _apply_rapidapi_filters_sort(
+    properties: list[PropertyResponse],
+    min_deal_score: float | None,
+    max_price: float | None,
+    min_cap_rate: float | None,
+    property_types: list[str] | None,
+    sort_by: str | None,
+) -> list[PropertyResponse]:
     if min_deal_score is not None:
         properties = [p for p in properties if p.deal_score >= min_deal_score]
     if max_price is not None:
         properties = [p for p in properties if p.price <= max_price]
     if min_cap_rate is not None:
         properties = [p for p in properties if p.cap_rate >= min_cap_rate]
+    if property_types:
+        properties = [p for p in properties if p.type in property_types]
 
-    # Sort
     sort_map = {
         "Deal Score": (lambda p: p.deal_score, True),
         "Price": (lambda p: p.price, False),
@@ -576,7 +795,6 @@ async def _search_rapidapi(
     if sort_by and sort_by in sort_map:
         key_fn, reverse = sort_map[sort_by]
         properties.sort(key=key_fn, reverse=reverse)
-
     return properties
 
 

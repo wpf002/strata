@@ -3,6 +3,7 @@ from .property import Property, Listing
 from .portfolio import PortfolioHolding, UnderwritingScenario
 from .search import SavedSearch, Watchlist
 from .client import Client
+from .user_property_activity import UserPropertyActivity
 
 __all__ = [
     "User",
@@ -13,4 +14,5 @@ __all__ = [
     "SavedSearch",
     "Watchlist",
     "Client",
+    "UserPropertyActivity",
 ]

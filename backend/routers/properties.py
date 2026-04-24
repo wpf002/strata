@@ -12,7 +12,7 @@ from ..database import get_db
 from ..models.property import Property
 from ..models.user import User
 from ..schemas.property import PropertyResponse, ValuationResponse, RiskResponse
-from ..services import property_service, valuation_service, risk_service
+from ..services import property_service, valuation_service, risk_service, off_market_service, renovation_service
 from ..services.school_service import get_nearby_schools
 from ..services.rent_service import get_rent_estimate
 
@@ -29,6 +29,8 @@ async def search_properties(
     min_cap_rate: float | None = Query(None),
     property_types: list[str] | None = Query(None),
     sort_by: str | None = Query(None),
+    off_market_only: bool = Query(False),
+    min_motivation_score: int | None = Query(None, ge=0, le=100),
     db: AsyncSession = Depends(get_db),
     _: User | None = _OptUser,
 ):
@@ -40,6 +42,8 @@ async def search_properties(
         min_cap_rate=min_cap_rate,
         property_types=property_types,
         sort_by=sort_by,
+        off_market_only=off_market_only,
+        min_motivation_score=min_motivation_score,
     )
 
 
@@ -75,7 +79,34 @@ async def get_property(
         prop.nearby_schools = None
         prop.rent_estimate = None
 
+    # Prefer raw mock source data when available — richer fields for signal detection.
+    mock_source = next((m for m in property_service.MOCK_PROPERTIES if m["id"] == prop.id), None)
+    signals = off_market_service.compute_signals(mock_source or prop.model_dump())
+    prop.motivation_score = signals["motivation_score"]
+    from ..schemas.property import OffMarketSignal as _OMS
+    prop.off_market_signals = (
+        [_OMS(**s) for s in signals["signals"]] if signals["has_signals"] else []
+    )
+
     return prop
+
+
+@router.get("/{property_id}/off-market-signals")
+async def get_off_market_signals(
+    property_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User | None = _OptUser,
+):
+    # Mock ids (p1, p2…) carry the richer fields signal detection needs —
+    # prefer the raw mock dict over a narrowed PropertyResponse.
+    mock = next((p for p in property_service.MOCK_PROPERTIES if p["id"] == property_id), None)
+    if mock:
+        return off_market_service.compute_signals(mock)
+
+    prop = await property_service.get_property_by_id(db, property_id)
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+    return off_market_service.compute_signals(prop.model_dump())
 
 
 @router.get("/{property_id}/comps", response_model=list[dict])
@@ -240,6 +271,63 @@ def _build_strategy_notes(strategy: str, urgency: str, dom: int) -> str:
     if strategy == "Short-Term Rental":
         return "STR revenue potential may support paying closer to list if occupancy projections are strong."
     return "For LTR at this market, bid near fair value mid-point and request seller concessions on closing costs."
+
+
+# ── Renovation Estimate ──────────────────────────────────────────────────────
+
+class RenovationRequest(BaseModel):
+    scope: list[str]
+    condition: Literal["poor", "fair", "average", "good"] = "average"
+    sqft: float
+    year_built: int | None = None
+    property_type: str = "Single Family"
+    state: str = "TX"
+    baths: float | None = None
+    fair_value_low: float | None = None
+    fair_value_high: float | None = None
+
+
+@router.post("/{property_id}/renovation-estimate")
+async def renovation_estimate(
+    property_id: str,
+    body: RenovationRequest,
+    _: User | None = _OptUser,
+):
+    scope = [s for s in body.scope if s in renovation_service.VALID_SCOPES]
+    if not scope:
+        raise HTTPException(status_code=422, detail="Select at least one valid scope item")
+
+    # Try to resolve fair value range from the property if not provided
+    fv_low = body.fair_value_low
+    fv_high = body.fair_value_high
+    if fv_low is None or fv_high is None:
+        mock = next((p for p in property_service.MOCK_PROPERTIES if p["id"] == property_id), None)
+        if mock:
+            fv_low = fv_low or mock.get("fair_value_low")
+            fv_high = fv_high or mock.get("fair_value_high")
+
+    estimate = renovation_service.compute_estimate(
+        scope=scope,
+        condition=body.condition,
+        sqft=body.sqft,
+        property_type=body.property_type,
+        state=body.state,
+        baths=body.baths,
+    )
+    arv = renovation_service.compute_arv_uplift(scope, fv_low, fv_high)
+    sow = await renovation_service.generate_sow(
+        scope=scope, condition=body.condition, sqft=body.sqft,
+        property_type=body.property_type, state=body.state,
+        total_low=estimate["total_low"], total_high=estimate["total_high"],
+    )
+
+    return {
+        **estimate,
+        **arv,
+        "scope_of_work": sow,
+        "scope": scope,
+        "condition": body.condition,
+    }
 
 
 # ── Closing Costs ─────────────────────────────────────────────────────────────

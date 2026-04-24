@@ -3,11 +3,11 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Calculator, Star, Share2, Bell, ChevronRight, MapPin, Info,
   ThumbsUp, ThumbsDown, Clock, Home, TrendingUp, Shield, AlertTriangle,
-  Landmark, Bot, Droplets, GraduationCap, Target, Send, X, Check, Loader2,
+  Landmark, Bot, Droplets, GraduationCap, Target, Send, X, Check, Loader2, Zap, Hammer,
 } from 'lucide-react';
-import { getProperty, getValuation, getRisk, getWatchlists, createWatchlist, addToWatchlist, removeFromWatchlist } from '../api/client';
+import { getProperty, getValuation, getRisk, getWatchlists, createWatchlist, addToWatchlist, removeFromWatchlist, getRenovationEstimate, logActivity } from '../api/client';
 import type { Property } from '../types';
-import type { ValuationData, RiskData } from '../api/client';
+import type { ValuationData, RiskData, RenovationEstimate } from '../api/client';
 import { ScoreBadge, RiskBadge, RegimeBadge, FlagBadge, ConfidencePill, MetricRow, StatCard, ProgressBar, fmt } from '../components/UI';
 import { clsx } from 'clsx';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
@@ -166,6 +166,7 @@ export default function IntelligencePage() {
         }
       })
       .finally(() => setLoadingProp(false));
+    logActivity(propId, 'viewed');
   }, [propId, navigate]);
 
   useEffect(() => {
@@ -207,9 +208,9 @@ export default function IntelligencePage() {
         </div>
         <Skeleton className="h-48 rounded-none" />
         <div className="px-6 py-5 space-y-4">
-          <div className="grid grid-cols-3 gap-5">
-            <div className="col-span-2 space-y-4">
-              <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2 space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[1,2,3,4].map(i => <Skeleton key={i} className="h-20" />)}
               </div>
               <Skeleton className="h-48" />
@@ -273,57 +274,63 @@ export default function IntelligencePage() {
       )}
 
       {/* Topbar */}
-      <div className="px-6 py-3 border-b border-white/5 flex items-center gap-4 flex-shrink-0">
-        <button onClick={() => navigate('/')} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm">
-          <ArrowLeft size={16} /> Back
+      <div className="px-4 md:px-6 py-3 border-b border-white/5 flex flex-wrap items-center gap-3 md:gap-4 flex-shrink-0">
+        <button onClick={() => navigate('/')} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm flex-shrink-0">
+          <ArrowLeft size={16} /> <span className="hidden sm:inline">Back</span>
         </button>
-        <div className="h-4 w-px bg-white/10" />
-        <div className="flex items-center gap-2 text-sm text-slate-400">
+        <div className="hidden md:block h-4 w-px bg-white/10" />
+        <div className="hidden md:flex items-center gap-2 text-sm text-slate-400 min-w-0">
           <MapPin size={12} />
-          <span className="text-white">{property.address}</span>
+          <span className="text-white truncate max-w-[200px] lg:max-w-none">{property.address}</span>
           <ChevronRight size={12} />
           <span>{property.city}, {property.state}</span>
         </div>
         {clientId && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 flex-shrink-0">
             <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
             <span className="text-[10px] text-amber-400 font-semibold">Shared with client</span>
           </div>
         )}
-        <div className="ml-auto flex items-center gap-2">
-          <button onClick={handleWatch} className={clsx('btn-ghost text-xs py-1.5 px-3', isWatched && 'text-amber-400')}><Star size={12} className={isWatched ? 'fill-amber-400' : ''} /> {isWatched ? 'Watching' : 'Watch'}</button>
-          <button onClick={handleShare} className="btn-ghost text-xs py-1.5 px-3"><Share2 size={12} /> {shareCopied ? 'Copied!' : 'Share'}</button>
-          <button onClick={handleAlert} className={clsx('btn-ghost text-xs py-1.5 px-3', alertSet && 'text-amber-400')}><Bell size={12} /> {alertSet ? 'Alert Set!' : 'Alert'}</button>
-          <button className="btn-ghost text-sm" onClick={() => setShowBriefModal(true)}>
-            <Send size={14} /> Send to Client
+        <div className="ml-auto flex items-center gap-1.5 md:gap-2 flex-wrap">
+          <button onClick={handleWatch} aria-label={isWatched ? 'Unwatch' : 'Watch'} className={clsx('btn-ghost text-xs py-1.5 px-2.5 md:px-3', isWatched && 'text-amber-400')}>
+            <Star size={12} className={isWatched ? 'fill-amber-400' : ''} /> <span className="hidden md:inline">{isWatched ? 'Watching' : 'Watch'}</span>
           </button>
-          <button className="btn-ghost text-sm" onClick={() => navigate(`/copilot?property=${property.id}`)}>
-            <Bot size={14} /> Ask Copilot
+          <button onClick={handleShare} aria-label="Share" className="btn-ghost text-xs py-1.5 px-2.5 md:px-3">
+            <Share2 size={12} /> <span className="hidden md:inline">{shareCopied ? 'Copied!' : 'Share'}</span>
           </button>
-          <button className="btn-primary text-sm" onClick={() => navigate(`/underwrite?property=${property.id}`)}>
-            <Calculator size={14} /> Run Full Analysis
+          <button onClick={handleAlert} aria-label="Set alert" className={clsx('btn-ghost text-xs py-1.5 px-2.5 md:px-3', alertSet && 'text-amber-400')}>
+            <Bell size={12} /> <span className="hidden md:inline">{alertSet ? 'Alert Set!' : 'Alert'}</span>
+          </button>
+          <button aria-label="Send to client" className="btn-ghost text-xs md:text-sm py-1.5 px-2.5 md:px-3" onClick={() => setShowBriefModal(true)}>
+            <Send size={14} /> <span className="hidden lg:inline">Send to Client</span>
+          </button>
+          <button aria-label="Ask Copilot" className="btn-ghost text-xs md:text-sm py-1.5 px-2.5 md:px-3" onClick={() => navigate(`/copilot?property=${property.id}`)}>
+            <Bot size={14} /> <span className="hidden lg:inline">Ask Copilot</span>
+          </button>
+          <button aria-label="Run Full Analysis" className="btn-primary text-xs md:text-sm py-1.5 px-3 md:px-4" onClick={() => navigate(`/underwrite?property=${property.id}`)}>
+            <Calculator size={14} /> <span className="hidden sm:inline">Analyze</span>
           </button>
         </div>
       </div>
 
       {/* Hero image */}
-      <div className="relative flex-shrink-0 h-48 overflow-hidden">
+      <div className="relative flex-shrink-0 h-40 md:h-48 overflow-hidden">
         <img src={property.image} alt={property.address} className="w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 px-6 pb-4 flex items-end justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-white mb-0.5">{property.address}</h1>
-            <div className="flex items-center gap-2 text-slate-300 text-sm flex-wrap">
+        <div className="absolute bottom-0 left-0 right-0 px-4 md:px-6 pb-3 md:pb-4 flex flex-col md:flex-row md:items-end md:justify-between gap-2">
+          <div className="min-w-0">
+            <h1 className="text-lg md:text-2xl font-bold text-white mb-0.5 truncate">{property.address}</h1>
+            <div className="flex items-center gap-2 text-slate-300 text-xs md:text-sm flex-wrap">
               <MapPin size={12} />
               <span>{property.city}, {property.state} {property.zip}</span>
-              <span>·</span><span>{property.beds}bd/{property.baths}ba</span>
-              <span>·</span><span>{fmt.num(property.sqft)} sqft</span>
-              <span>·</span><span>{property.type}</span>
-              <span>·</span><RegimeBadge regime={property.marketRegime} />
+              <span className="hidden sm:inline">·</span><span>{property.beds}bd/{property.baths}ba</span>
+              <span className="hidden sm:inline">·</span><span className="hidden sm:inline">{fmt.num(property.sqft)} sqft</span>
+              <span className="hidden md:inline">·</span><span className="hidden md:inline">{property.type}</span>
+              <span className="hidden sm:inline">·</span><RegimeBadge regime={property.marketRegime} />
             </div>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="text-3xl font-bold font-mono text-white">{fmt.currency(property.price)}</div>
+          <div className="flex items-center justify-between md:flex-col md:items-end gap-2 md:gap-2 md:flex-shrink-0">
+            <div className="text-xl md:text-3xl font-bold font-mono text-white">{fmt.currency(property.price)}</div>
             <div className="flex items-center gap-2">
               <ScoreBadge score={property.dealScore} size="lg" />
               <RiskBadge score={property.riskScore} />
@@ -333,42 +340,42 @@ export default function IntelligencePage() {
       </div>
 
       {/* Recommendation bar */}
-      <div className="px-6 py-2.5 border-y border-white/5 flex items-center gap-4 flex-shrink-0 bg-navy-900/30">
-        <div className={clsx('px-4 py-1.5 rounded-lg border font-bold text-sm', recColor)}>STRATA: {rec.toUpperCase()}</div>
-        <p className="text-sm text-slate-400">
+      <div className="px-4 md:px-6 py-2.5 border-y border-white/5 flex flex-wrap items-start md:items-center gap-2 md:gap-4 flex-shrink-0 bg-navy-900/30">
+        <div className={clsx('px-3 md:px-4 py-1.5 rounded-lg border font-bold text-xs md:text-sm flex-shrink-0', recColor)}>STRATA: {rec.toUpperCase()}</div>
+        <p className="text-xs md:text-sm text-slate-400 flex-1 min-w-0">
           {rec === 'Buy' && 'Priced near fair value with strong cash flow. Meets your LTR strategy targets.'}
           {rec === 'Negotiate' && `Target offer: ${fmt.currency(property.fairValueLow)}–${fmt.currency(property.fairValueHigh)}. List price is above estimated value.`}
           {rec === 'Watch' && 'Marginal at current price. Set a price drop alert.'}
           {rec === 'Avoid' && 'Does not meet return thresholds at any reasonable assumption.'}
         </p>
-        <div className="ml-auto flex items-center gap-1 text-xs text-slate-600">
+        <div className="hidden lg:flex ml-auto items-center gap-1 text-xs text-slate-600">
           <Info size={11} /> Based on {priceHistory.length} comps · {property.riskFlags.length} risk factors · current market
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="px-6 border-b border-white/5 flex gap-6 flex-shrink-0 overflow-x-auto">
+      <div className="px-4 md:px-6 border-b border-white/5 flex gap-4 md:gap-6 flex-shrink-0 overflow-x-auto">
         {TABS.map(t => (
-          <button key={t} onClick={() => setActiveTab(t)} className={clsx('py-3 text-sm font-medium transition-all whitespace-nowrap', activeTab === t ? 'tab-active' : 'tab-inactive')}>{t}</button>
+          <button key={t} onClick={() => setActiveTab(t)} className={clsx('py-3 text-xs md:text-sm font-medium transition-all whitespace-nowrap', activeTab === t ? 'tab-active' : 'tab-inactive')}>{t}</button>
         ))}
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 md:py-5">
         {activeTab === 'Overview' && <OverviewTab p={property} />}
         {activeTab === 'Financials' && <FinancialsTab p={property} />}
         {activeTab === 'Valuation' && (
           loadingVal ? (
-            <div className="grid grid-cols-3 gap-5">
-              <div className="col-span-2 space-y-4"><Skeleton className="h-32" /><Skeleton className="h-48" /></div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              <div className="lg:col-span-2 space-y-4"><Skeleton className="h-32" /><Skeleton className="h-48" /></div>
               <div className="space-y-4"><Skeleton className="h-40" /><Skeleton className="h-48" /></div>
             </div>
           ) : <ValuationTab p={property} valuation={valuation} />
         )}
         {activeTab === 'Risk' && (
           loadingRisk ? (
-            <div className="grid grid-cols-3 gap-5">
-              <div className="col-span-2 space-y-3">{[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-20" />)}</div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              <div className="lg:col-span-2 space-y-3">{[1,2,3,4,5,6].map(i => <Skeleton key={i} className="h-20" />)}</div>
               <div className="space-y-4"><Skeleton className="h-36" /><Skeleton className="h-36" /></div>
             </div>
           ) : <RiskTab p={property} riskData={risk} />
@@ -448,8 +455,8 @@ function OfferStrategyTab({ p }: { p: Property }) {
   const recPinPct = Math.max(0, Math.min(100, (result.recommendedOffer - result.offerLow) / barWidth * 100));
 
   return (
-    <div className="grid grid-cols-3 gap-5">
-      <div className="col-span-2 space-y-4">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="lg:col-span-2 space-y-4">
         {/* Urgency selector */}
         <div className="glass rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
@@ -606,9 +613,9 @@ function OverviewTab({ p }: { p: Property & { rentEstimate?: any; nearbySchools?
   const schools: any[] = (p as any).nearbySchools ?? [];
 
   return (
-    <div className="grid grid-cols-3 gap-5">
-      <div className="col-span-2 space-y-4">
-        <div className="grid grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="lg:col-span-2 space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard label="Cap Rate" value={fmt.pct(p.capRate)} sub="at list price" color="gold" />
           <StatCard label="Cash Flow" value={`+${fmt.currency(p.cashFlow)}/mo`} sub="est. after expenses" color="green" />
           <StatCard label="CoC Return" value={fmt.pct(p.cashOnCash)} sub="25% down" color="green" />
@@ -639,6 +646,8 @@ function OverviewTab({ p }: { p: Property & { rentEstimate?: any; nearbySchools?
             {p.riskFlags.map((f, i) => <FlagBadge key={i} label={f.label} severity={f.severity} />)}
           </div>
         </div>
+        <OffMarketSignalsPanel p={p} />
+        <RenovationPotentialCard p={p} />
         {schools.length > 0 && (
           <div className="glass rounded-xl p-5">
             <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><GraduationCap size={14} className="text-blue-400" /> Nearby Schools</h3>
@@ -705,6 +714,143 @@ function OverviewTab({ p }: { p: Property & { rentEstimate?: any; nearbySchools?
   );
 }
 
+// ── Off-Market Signals panel ──────────────────────────────────────────────────
+
+function OffMarketSignalsPanel({ p }: { p: Property }) {
+  const signals = p.offMarketSignals ?? [];
+  const score = p.motivationScore ?? 0;
+  if (signals.length === 0) return null;
+
+  const severityStyle = (sev: string) =>
+    sev === 'high' ? 'text-red-400 bg-red-400/10 border-red-400/30'
+    : sev === 'medium' ? 'text-amber-400 bg-amber-500/10 border-amber-500/30'
+    : 'text-slate-300 bg-white/5 border-white/10';
+
+  const gaugeColor = score >= 50 ? '#f59e0b' : score >= 30 ? '#eab308' : '#64748b';
+
+  return (
+    <div className="glass rounded-xl p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+          <Zap size={14} className="text-amber-500" /> Off-Market Signals ({signals.length})
+        </h3>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">Motivation</span>
+          <div className="relative w-12 h-12">
+            <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+              <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="14" />
+              <circle cx="50" cy="50" r="40" fill="none"
+                stroke={gaugeColor} strokeWidth="14"
+                strokeDasharray={`${score * 2.513} 251.3`} strokeLinecap="round"
+              />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-xs font-bold font-mono text-white">{score}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="space-y-2 mb-3">
+        {signals.map((s, i) => (
+          <div key={`${s.type}-${i}`} className="flex items-start justify-between gap-3 py-2 border-b border-white/5 last:border-0">
+            <p className="text-sm text-slate-200 flex-1">{s.label}</p>
+            <span className={clsx('text-[10px] font-bold uppercase px-2 py-0.5 rounded border flex-shrink-0', severityStyle(s.severity))}>
+              {s.severity}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-slate-500 leading-relaxed">
+        This analysis is based on publicly available data and market comparisons. Always verify directly with the seller or listing agent.
+      </p>
+    </div>
+  );
+}
+
+// ── Renovation Potential card (Overview quick estimate) ──────────────────────
+
+function RenovationPotentialCard({ p }: { p: Property }) {
+  const navigate = useNavigate();
+  const [estimate, setEstimate] = useState<RenovationEstimate | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setErrorMsg(null);
+    getRenovationEstimate(p.id, {
+      scope: ['cosmetic', 'kitchen', 'bathrooms'],
+      condition: 'average',
+      sqft: p.sqft,
+      yearBuilt: p.yearBuilt ?? null,
+      propertyType: p.type,
+      state: p.state,
+      baths: p.baths,
+      fairValueLow: p.fairValueLow,
+      fairValueHigh: p.fairValueHigh,
+    })
+      .then(e => { if (alive) setEstimate(e); })
+      .catch(err => {
+        if (alive) setErrorMsg(String(err?.message ?? err ?? 'Unable to load estimate').slice(0, 200));
+      })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [p.id, p.sqft, p.state, p.type, p.baths, p.yearBuilt, p.fairValueLow, p.fairValueHigh]);
+
+  const totalMid = estimate ? Math.round((estimate.totalLow + estimate.totalHigh) / 2) : 0;
+
+  return (
+    <div className="glass rounded-xl p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+          <Hammer size={14} className="text-amber-500" /> Renovation Potential
+        </h3>
+        <button
+          onClick={() => navigate(`/underwrite?property=${p.id}&strategy=Renovation`)}
+          className="text-xs text-amber-400 hover:text-amber-300"
+        >
+          Detailed estimate →
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="h-16 glass rounded animate-pulse" />
+      ) : errorMsg ? (
+        <p className="text-xs text-red-400">{errorMsg}</p>
+      ) : estimate ? (
+        <div className="space-y-3">
+          <p className="text-[10px] text-slate-500 uppercase tracking-wide">
+            Quick estimate — cosmetic refresh + kitchen + baths at {estimate.condition} condition
+          </p>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wide">Budget (mid)</p>
+              <p className="text-lg font-bold font-mono text-amber-400">{fmt.currency(totalMid)}</p>
+              <p className="text-[10px] text-slate-500">{fmt.currency(estimate.totalLow)}–{fmt.currency(estimate.totalHigh)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wide">Cost / sqft</p>
+              <p className="text-lg font-bold font-mono text-white">${estimate.costPerSqftLow}–${estimate.costPerSqftHigh}</p>
+              <p className="text-[10px] text-slate-500">{fmt.num(p.sqft)} sqft</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wide">Projected ARV</p>
+              <p className="text-lg font-bold font-mono text-emerald-400">
+                {estimate.arvLow ? `${fmt.compact(estimate.arvLow)}–${fmt.compact(estimate.arvHigh ?? estimate.arvLow)}` : '—'}
+              </p>
+              <p className="text-[10px] text-slate-500">+{estimate.upliftLowPct}–{estimate.upliftHighPct}% vs current</p>
+            </div>
+          </div>
+          <p className="text-[10px] text-slate-600 leading-relaxed">
+            For a detailed estimate with full scope selection, use the Renovation tab in Underwrite.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function FinancialsTab({ p }: { p: Property }) {
   const [downPct, setDownPct] = useState(25);
   const [rate, setRate] = useState(7.25);
@@ -724,7 +870,7 @@ function FinancialsTab({ p }: { p: Property }) {
   const dscr = noi / mtg;
 
   return (
-    <div className="grid grid-cols-3 gap-5">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
       <div className="space-y-4">
         <div className="glass rounded-xl p-5">
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Assumptions</p>
@@ -741,8 +887,8 @@ function FinancialsTab({ p }: { p: Property }) {
           ))}
         </div>
       </div>
-      <div className="col-span-2 space-y-4">
-        <div className="grid grid-cols-4 gap-3">
+      <div className="lg:col-span-2 space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard label="Cash Flow" value={`${cf >= 0 ? '+' : ''}${fmt.currency(cf)}/mo`} color={cf >= 0 ? 'green' : 'red'} />
           <StatCard label="Cap Rate" value={fmt.pct(cap)} color="gold" />
           <StatCard label="CoC Return" value={fmt.pct(coc)} color={coc >= 6 ? 'green' : 'default'} />
@@ -750,7 +896,7 @@ function FinancialsTab({ p }: { p: Property }) {
         </div>
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-semibold text-white mb-4">Monthly P&L</h3>
-          <div className="grid grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8">
             <div>
               <p className="text-xs text-emerald-400 font-semibold mb-2 uppercase tracking-wide">Income</p>
               <MetricRow label="Gross Rent" value={fmt.currency(p.rentEstMid)} />
@@ -785,8 +931,8 @@ function ValuationTab({ p, valuation }: { p: Property; valuation: ValuationData 
   const pvFv = ((p.price - fvMid) / fvMid) * 100;
 
   return (
-    <div className="grid grid-cols-3 gap-5">
-      <div className="col-span-2 space-y-4">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="lg:col-span-2 space-y-4">
         <div className="glass rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-white">STRATA Fair Value Estimate</h3>
@@ -884,8 +1030,8 @@ function RiskTab({ p, riskData }: { p: Property; riskData: RiskData | null }) {
   const flood = riskData?.floodRisk;
 
   return (
-    <div className="grid grid-cols-3 gap-5">
-      <div className="col-span-2 space-y-3">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="lg:col-span-2 space-y-3">
         <div className="glass rounded-xl p-5 mb-2">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-white">Composite Risk Score</h3>

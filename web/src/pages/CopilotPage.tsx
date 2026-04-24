@@ -261,26 +261,27 @@ export default function CopilotPage() {
       )}
 
       {/* Header */}
-      <div className="px-6 py-4 border-b border-white/5 flex items-center gap-3 flex-shrink-0">
-        <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center">
+      <div className="px-4 md:px-6 py-3 md:py-4 border-b border-white/5 flex items-center gap-3 flex-shrink-0">
+        <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center flex-shrink-0">
           <Bot size={16} className="text-amber-400" />
         </div>
-        <div>
+        <div className="min-w-0 flex-1">
           <h1 className="text-sm font-semibold text-white">STRATA Copilot</h1>
-          <p className="text-xs text-slate-500">AI-powered real estate intelligence · All outputs include confidence labels</p>
+          <p className="text-xs text-slate-500 hidden sm:block">AI-powered real estate intelligence · All outputs include confidence labels</p>
+          <p className="text-xs text-slate-500 sm:hidden">AI real estate intelligence</p>
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-slate-500">Powered by Claude</span>
+        <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+          <span className="text-xs text-slate-500 hidden md:inline">Powered by Claude</span>
         </div>
       </div>
 
       {/* Property context banner */}
       {contextProperty && (
-        <div className="px-6 py-2.5 border-b border-amber-500/20 bg-amber-500/5 flex items-center gap-3 flex-shrink-0">
+        <div className="px-4 md:px-6 py-2.5 border-b border-amber-500/20 bg-amber-500/5 flex flex-wrap items-center gap-2 md:gap-3 flex-shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
           <span className="text-xs text-amber-400 font-semibold">Analyzing:</span>
-          <span className="text-xs text-slate-300">{contextProperty.address}, {contextProperty.city}</span>
-          <div className="ml-auto flex items-center gap-2">
+          <span className="text-xs text-slate-300 truncate max-w-[60vw] md:max-w-none">{contextProperty.address}, {contextProperty.city}</span>
+          <div className="ml-auto flex items-center gap-2 flex-shrink-0">
             <button
               onClick={memo ? () => setShowMemo(true) : generateMemo}
               disabled={memoLoading}
@@ -289,18 +290,19 @@ export default function CopilotPage() {
               {memoLoading ? (
                 <>
                   <div className="w-3 h-3 border border-amber-400 border-t-transparent rounded-full animate-spin" />
-                  Generating…
+                  <span className="hidden sm:inline">Generating…</span>
                 </>
               ) : (
                 <>
                   <FileText size={12} />
-                  {memo ? 'View Memo' : 'Generate Investment Memo'}
+                  <span className="hidden sm:inline">{memo ? 'View Memo' : 'Generate Investment Memo'}</span>
+                  <span className="sm:hidden">{memo ? 'View' : 'Memo'}</span>
                 </>
               )}
             </button>
             <Link
               to={`/intelligence/${contextProperty.id}`}
-              className="flex items-center gap-1 text-xs text-slate-500 hover:text-amber-400 transition-colors"
+              className="hidden md:flex items-center gap-1 text-xs text-slate-500 hover:text-amber-400 transition-colors"
             >
               View Intelligence <ExternalLink size={11} />
             </Link>
@@ -310,7 +312,7 @@ export default function CopilotPage() {
 
       {/* Memo error */}
       {memoError && (
-        <div className="px-6 py-2 border-b border-red-500/20 bg-red-500/5 flex items-center gap-2 flex-shrink-0">
+        <div className="px-4 md:px-6 py-2 border-b border-red-500/20 bg-red-500/5 flex items-center gap-2 flex-shrink-0">
           <AlertCircle size={13} className="text-red-400 flex-shrink-0" />
           <span className="text-xs text-red-400">{memoError}</span>
           <button onClick={() => setMemoError(null)} className="ml-auto text-xs text-red-400 hover:text-red-300"><X size={12} /></button>
@@ -319,22 +321,22 @@ export default function CopilotPage() {
 
       {/* Stream error */}
       {streamError && (
-        <div className="px-6 py-2 border-b border-red-500/20 bg-red-500/5 flex items-center gap-2 flex-shrink-0">
+        <div className="px-4 md:px-6 py-2 border-b border-red-500/20 bg-red-500/5 flex items-center gap-2 flex-shrink-0">
           <AlertCircle size={13} className="text-red-400" />
           <span className="text-xs text-red-400">{streamError}</span>
         </div>
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 md:py-6">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full">
             <div className="w-14 h-14 rounded-2xl bg-amber-500/10 flex items-center justify-center mb-4">
               <Sparkles size={24} className="text-amber-400" />
             </div>
-            <h2 className="text-xl font-semibold text-white mb-2" style={{ fontFamily: "'DM Serif Display', serif" }}>What would you like to know?</h2>
-            <p className="text-slate-500 text-sm mb-8 text-center max-w-md">Ask about any property, market, or deal. Every answer includes confidence labels and data sources.</p>
-            <div className="grid grid-cols-2 gap-3 max-w-2xl w-full">
+            <h2 className="text-lg md:text-xl font-semibold text-white mb-2 text-center" style={{ fontFamily: "'DM Serif Display', serif" }}>What would you like to know?</h2>
+            <p className="text-slate-500 text-sm mb-6 md:mb-8 text-center max-w-md">Ask about any property, market, or deal. Every answer includes confidence labels and data sources.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl w-full">
               {SUGGESTIONS.map(s => (
                 <button key={s} onClick={() => send(s)} className="text-left p-3.5 rounded-xl border border-white/8 glass hover:border-amber-500/30 hover:bg-amber-500/5 transition-all">
                   <p className="text-sm text-slate-300 leading-snug">{s}</p>
@@ -366,7 +368,7 @@ export default function CopilotPage() {
       </div>
 
       {/* Input */}
-      <div className="px-6 py-4 border-t border-white/5 flex-shrink-0">
+      <div className="px-4 md:px-6 py-3 md:py-4 border-t border-white/5 flex-shrink-0">
         <div className="max-w-3xl mx-auto">
           <div className="relative flex items-center">
             <input

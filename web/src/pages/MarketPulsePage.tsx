@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { TrendingUp, TrendingDown, ChevronDown, ChevronUp, Search, Building } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { clsx } from 'clsx';
 import { fmt } from '../components/UI';
+import { getSupportedMarkets } from '../api/client';
+import type { SupportedMarket } from '../types';
 
 interface MarketSummaryItem {
   city: string;
@@ -98,7 +100,7 @@ function MarketCard({ market, onSearch }: { market: MarketSummaryItem; onSearch:
 
       {expanded && (
         <div className="border-t border-white/5 p-5 space-y-5">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <p className="text-xs text-slate-400 font-medium mb-2">Price Trend (12 months)</p>
               <div className="h-28">
@@ -174,6 +176,8 @@ const BASE_URL = import.meta.env.VITE_API_URL ?? '';
 export default function MarketPulsePage() {
   const [markets, setMarkets] = useState<MarketSummaryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [supported, setSupported] = useState<SupportedMarket[]>([]);
+  const [selectedId, setSelectedId] = useState<string>('all');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -193,34 +197,74 @@ export default function MarketPulsePage() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    getSupportedMarkets().then(setSupported).catch(() => setSupported([]));
+  }, []);
+
+  const visibleMarkets = useMemo(() => {
+    if (selectedId === 'all') return markets;
+    const target = supported.find(s => s.marketId === selectedId);
+    if (!target) return markets;
+    const match = markets.find(m => m.city.toLowerCase() === target.city.toLowerCase() && m.state.toUpperCase() === target.stateCode.toUpperCase());
+    return match ? [match] : [];
+  }, [markets, supported, selectedId]);
+
   const handleSearch = (city: string, state: string) => {
     navigate(`/?q=${encodeURIComponent(`${city}, ${state}`)}`);
   };
 
+  const subtitle = selectedId === 'all'
+    ? `Live conditions across ${markets.length} markets`
+    : `Detailed view for ${visibleMarkets[0]?.city ?? 'selected market'}, ${visibleMarkets[0]?.state ?? ''}`;
+
   return (
     <div className="flex flex-col h-full page-fade overflow-hidden">
-      <div className="px-6 py-4 border-b border-white/5 flex-shrink-0">
-        <div className="flex items-center gap-3">
+      <div className="px-4 md:px-6 py-3 md:py-4 border-b border-white/5 flex-shrink-0 flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center">
             <Building size={16} className="text-blue-400" />
           </div>
           <div>
             <h1 className="text-lg font-semibold text-white">Market Pulse</h1>
-            <p className="text-sm text-slate-500">Live conditions across 5 high-growth markets</p>
+            <p className="text-sm text-slate-500">{subtitle}</p>
           </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <label className="text-xs text-slate-500">View</label>
+          <select
+            value={selectedId}
+            onChange={e => setSelectedId(e.target.value)}
+            className="strata-input text-sm py-1.5 w-full sm:min-w-[200px]"
+          >
+            <option value="all">All markets with data</option>
+            {supported.map(m => (
+              <option key={m.marketId} value={m.marketId}>
+                {m.city}, {m.stateCode}{m.isLaunchMarket ? ' ⭐' : ''}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 md:py-5">
         {loading ? (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             {[...Array(5)].map((_, i) => (
               <div key={i} className="glass rounded-2xl h-48 animate-pulse" />
             ))}
           </div>
+        ) : visibleMarkets.length === 0 ? (
+          <div className="glass rounded-2xl p-10 text-center border border-white/5">
+            <p className="text-sm text-slate-400 mb-1">No live data for this market yet.</p>
+            <p className="text-xs text-slate-500">
+              Choose a launch market (⭐) for full analytics, or{' '}
+              <button onClick={() => setSelectedId('all')} className="text-amber-400 hover:underline">view all markets</button>.
+            </p>
+          </div>
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            {markets.map(m => (
+            {visibleMarkets.map(m => (
               <MarketCard key={`${m.city}-${m.state}`} market={m} onSearch={handleSearch} />
             ))}
           </div>

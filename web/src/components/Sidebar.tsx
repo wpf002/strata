@@ -1,18 +1,18 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Search, BarChart3, Calculator, Briefcase, TrendingUp, Bot, Users, Landmark, Settings, Bell, ChevronRight, Zap, DoorOpen } from 'lucide-react';
+import { Search, BarChart3, Calculator, Briefcase, TrendingUp, Bot, Users, Flame, Settings, Bell, ChevronRight, Zap } from 'lucide-react';
 import { clsx } from 'clsx';
 
 const navSections = [
   { label: 'DISCOVER', items: [{ icon: Search, label: 'Search', path: '/' }, { icon: TrendingUp, label: 'Market Pulse', path: '/market' }] },
   { label: 'ANALYZE', items: [{ icon: BarChart3, label: 'Intelligence', path: '/intelligence' }, { icon: Calculator, label: 'Underwrite', path: '/underwrite' }] },
-  { label: 'OPERATE', items: [{ icon: Briefcase, label: 'Portfolio', path: '/portfolio' }, { icon: Bot, label: 'Copilot', path: '/copilot' }] },
-  { label: 'TEAMS', items: [{ icon: Users, label: 'Clients', path: '/clients' }, { icon: DoorOpen, label: 'Deal Rooms', path: '/deal-rooms' }, { icon: Landmark, label: 'Lender', path: '/lender' }] },
+  { label: 'OPERATE', items: [{ icon: Briefcase, label: 'Portfolio', path: '/portfolio' }, { icon: Flame, label: 'Leads', path: '/leads' }, { icon: Bot, label: 'Copilot', path: '/copilot' }] },
+  { label: 'TEAMS', items: [{ icon: Users, label: 'Clients', path: '/clients' }] },
 ];
 
 export default function Sidebar() {
   const location = useLocation();
   return (
-    <aside className="w-[220px] flex-shrink-0 flex flex-col h-full glass-dark border-r border-white/5">
+    <aside className="hidden md:flex w-[220px] flex-shrink-0 flex-col h-full glass-dark border-r border-white/5">
       <div className="px-5 py-5 border-b border-white/5">
         <Link to="/" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
           <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center">

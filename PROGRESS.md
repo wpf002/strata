@@ -264,8 +264,151 @@
 
 ---
 
-## Current Test Status
+---
 
-- Frontend: **75 tests passing** (Vitest)
-- Backend: **30 tests passing** (pytest)
+## Sprint 6 (Phase 4) — April 2026
+
+### Task 1 — Public API v1
+
+- `POST/GET /api/v1/*` family — developer-facing REST surface authenticated by `X-STRATA-API-Key` header (sha256-hashed, looked up via `backend/services/api_key_service.py`)
+- `backend/routers/api_v1.py`: properties search/detail, valuation, risk, underwriting (analyze/BRRRR/flip/STR), market summary, single-market lookup, supported-markets list
+- All responses wrapped in `{ data, meta: { apiVersion, timestamp, requestId } }`
+- Rate limit: 1,000 calls/month per key on a rolling 30-day window; `X-RateLimit-Limit/Remaining/Reset` headers on every response; 429 with `Retry-After` when exceeded
+- `backend/models/api_key.py` + `backend/schemas/api_key.py`: per-user keys store sha256 hash + 8-char prefix, monthly counter, last-used timestamp, scopes array, active flag
+- Migration `008_api_keys_and_webhooks.py` creates `api_keys` + `webhooks` tables
+- `backend/routers/settings.py`: `GET/POST /settings/api-keys` (create returns full key exactly once) and `DELETE /settings/api-keys/{id}` (revokes, keeps row for audit)
+- `SettingsPage.tsx`: new "API Access" section — list of keys with prefix/usage/last-used, Generate New Key modal with copy-once flow + "You won't see it again" warning, revoke button per key
+
+### Task 2 — Webhooks
+
+- `webhooks` table (same migration 008): url, secret, events array (jsonb), is_active, failure_count, last_triggered_at, last_error
+- `backend/services/webhook_service.py`: `deliver_webhook(user_id, event_type, payload)` fans out to matching active hooks; HMAC-SHA256 signs the raw body as `X-STRATA-Signature: sha256=…`; also emits `X-STRATA-Event` and `X-STRATA-Delivery` headers
+- On non-2xx, timeout, or network error: `failure_count` increments and the hook is disabled after `MAX_FAILURES` (5) consecutive failures
+- Supported events: `saved_search.match`, `portfolio.alert`, `property.price_drop`, `deal_room.task_complete`
+- Management routes: `GET/POST/DELETE /settings/webhooks`, plus `POST /settings/webhooks/{id}/test` which fires a one-shot ping without incrementing failure count
+- `SettingsPage.tsx`: new "Webhooks" section — list with active/failing status badge and event chips, Add Webhook modal (URL + event checkboxes + event descriptions), show-once signing secret, per-hook Test + Delete buttons, inline delivery-status message
+
+### Task 3 — Off-Market Layer
+
+- `backend/services/off_market_service.py`: `compute_signals(property)` detects six motivated-seller heuristics — extended listing (DOM > 90 with no reduction), multiple price reductions (≥2), absentee owner (SFR with owner address ≠ property address), assessment gap (< 65% of list), DOM outlier vs zip median, significant discount to fair value mid
+- Each signal carries `type`, `label`, `severity`; aggregate `motivation_score` (0–100) sums severity weights capped at 100
+- `PropertyResponse` schema extended with `motivationScore` and `offMarketSignals[]` (auto-populated by `search_properties` and `GET /properties/{id}`)
+- New filter params on `GET /properties/search`: `off_market_only` (default threshold 30) and `min_motivation_score` (0–100)
+- New endpoint `GET /properties/{id}/off-market-signals` for on-demand recomputation
+- `SearchPage.tsx`: "Off-Market Signals" toggle in the Filters panel + "Motivation Score" sort option + amber "⚡ MOTIVATED SELLER" badge on property cards where score > 50
+- `IntelligencePage.tsx` Overview tab: `OffMarketSignalsPanel` renders when signals exist — severity-colored rows, circular motivation gauge (0–100), verify-directly disclaimer
+
+### Task 7 — National MLS Expansion Prep
+
+- `backend/data/markets.json`: 25-market registry — 5 launch markets (Dallas, Phoenix, Nashville, Atlanta, Tampa) + 20 additional (Austin, Charlotte, Raleigh, Jacksonville, Orlando, Las Vegas, Denver, Salt Lake City, Indianapolis, Columbus, Memphis, Birmingham, Kansas City, San Antonio, Fort Worth, Oklahoma City, Tulsa, Little Rock, Greensboro, Richmond)
+- `backend/services/markets_service.py`: `load_markets()`, `list_markets()`, `resolve_market(query)` — freeform resolution from `"Phoenix, AZ"` / `"phoenix-az"` / `"Phoenix AZ"` with case-insensitive city + state matching and city-only fallback
+- `backend/routers/markets.py`: `GET /markets/supported` — launch markets first, alphabetical
+- `SearchPage.tsx`: market selector replaces the plain search input — searchable dropdown, recent markets (localStorage, up to 5), "All Markets" nationwide option, ⭐ on launch markets
+- `MarketPulsePage.tsx`: selector in the header to view any supported market; shows an informative empty state when a non-launch market has no `/market/summary` data yet
+
+### Task 4 — Renovation Engine
+
+- `backend/services/renovation_service.py` — cost table (per-house / per-unit / per-sqft) with 20+ state multipliers (TX 0.95, CA 1.40, NY 1.45, etc.) and condition multipliers (poor 1.20 → good 0.90)
+- `compute_estimate()` returns per-line items, subtotal, 10% & 20% contingency, totals, and cost/sqft; `full_gut` selection suppresses per-item lines and prices on a per-sqft basis
+- `compute_arv_uplift()` applies non-compounding max uplift by scope: cosmetic 5–8%, kitchen+baths 10–15%, structural 8–12%, full gut 20–30%
+- `generate_sow()` — Claude-generated 3-paragraph contractor SOW narrative; falls back to a templated narrative when `ANTHROPIC_API_KEY` is absent
+- `POST /properties/{id}/renovation-estimate` (in properties router) — validates scope items, pulls property's fair-value range from mock data when not supplied, returns line items + totals + ARV + SOW
+- `UnderwritePage.tsx` — new "Renovation" strategy tab with `RenovationPanel`: 12-item scope checklist, poor/fair/average/good condition selector, 10% vs 20% contingency toggle, line items table, total band in large type, ARV band, collapsible SOW narrative, and **"Add to BRRRR Analysis" button** that pre-fills the BRRRR tab's rehab cost with the total mid-point
+- `IntelligencePage.tsx` Overview — new `RenovationPotentialCard` shows a quick estimate for cosmetic + kitchen + baths with budget mid, cost/sqft, projected ARV, and a "Detailed estimate →" link to the Renovation tab
+
+### Task 5 — LP Portfolio Report
+
+- `backend/services/lp_report_service.py` — aggregates a user's holdings into `propertyCount`, `totalValue`, `totalEquity`, `totalDebt`, `monthlyCashFlow`, `annualCashFlow`, `totalCostBasis`, `totalAppreciation` (%), `avgLtvPct`, and state concentration
+- Claude generates four narrative sections: executive summary, market context, risk overview, outlook (plus optional tax notes); falls back to a data-driven templated narrative when no API key
+- `POST /portfolio/lp-report` (in portfolio router) — authenticated; 400 if the user has no holdings; 422 if `fund_name` or `reporting_period` are blank; persists result to the `reports` table with `report_type = 'lp_report'` so the shareable link works at `/reports/{id}`
+- `PortfolioPage.tsx` — new "Generate LP Report" Quick Action opens `LPReportModal`: fund name, reporting period (auto-filled to current quarter), manager name, manager email, "Include Tax Notes" toggle → generates → shows shareable link + copy button + "View + Download PDF"
+- `ReportPage.tsx` — new `LPReport` renderer supports `report_type = 'lp_report'`: header with fund/period/manager, executive summary, 8-tile portfolio snapshot, full holdings table (address, basis, value, appreciation, CF/mo, rec), market context, risk overview with state concentration chips, outlook, optional tax notes, disclosures; print CSS inherits from CMA path, Download PDF via `window.print()`
+
+### Task 6 — Mobile Property Tour Mode
+
+- `backend/routers/tour.py` — `POST /tour/scan-address` authenticated; accepts `image_base64` (raw or data URL), validates base64, caps at ~6MB, calls Claude Sonnet 4 vision, returns `{ address, confidence }` where confidence is `high` / `low` / `not_found`
+- Vision prompt constrains output: "Return ONLY the address string" or `'NOT_FOUND'` — no fabrication
+- Graceful degradation: 503 when `ANTHROPIC_API_KEY` absent, 502 on Claude error, 413 on oversized input, 422 on invalid base64
+- `mobile/src/api.ts` — `scanAddressFromImage(imageBase64)` client helper, re-using existing `request()` with JWT
+- `mobile/src/screens/TourModeScreen.tsx` — full screen: permission request, reticle overlay, Scan button, post-capture base64 + send, auto-search STRATA for extracted address, navigate to IntelligenceScreen on match
+- `react-native-vision-camera` loaded via `require()` in a try/catch so Metro can still bundle when the package isn't yet installed — when missing, the screen renders a setup panel with the 4-step install instructions
+- `mobile/src/screens/SearchScreen.tsx` — new camera icon button in the search bar (top right, gold-accented), wired via `onOpenTourMode` prop
+- `mobile/App.tsx` — `tourModeOpen` state + full-screen render; on successful scan, routes the returned property id into IntelligenceScreen automatically
+- **Not committed in this session**: `react-native-vision-camera` npm install, pod install, and native `NSCameraUsageDescription` / `CAMERA` permission — the mobile/ directory has no `ios/` or `android/` native project folders yet, so those steps belong to whoever generates the native projects
+
+---
+
+### Migration chain
+
+- `001 → 002 → 003 → 004 → 005 → 006 → 007 → 008` (008 is head, applied to Supabase). Apply locally with `cd backend && alembic upgrade head`.
+
+---
+
+---
+
+## Sprint 6 Addendum — Mobile-Responsive Web
+
+Goal: make the web app usable in a phone browser before committing to a native React Native app.
+
+### Shell
+
+- `web/src/components/MobileNav.tsx` — new compact top bar visible only under `md` breakpoint (768px): hamburger button, logo + page title, alerts icon. Opens a full-height slide-out drawer (~288px, 85vw max) containing the same nav sections as the desktop sidebar. Drawer auto-closes on route change, locks body scroll while open, and dims the page behind a backdrop tap-to-close.
+- `Sidebar.tsx` — now `hidden md:flex`, so the desktop 220px sidebar only appears on tablet+ viewports.
+- `App.tsx` — shell switches from `flex-row` (sidebar left of main) to `flex-col` on mobile so the mobile `MobileNav` top bar sits above content. Added `min-w-0` to the main column to prevent children from overflowing the viewport.
+
+### Tier 1 — polished mobile (high-traffic pages)
+
+- **SearchPage** — header uses `flex-wrap`; strategy tabs + view toggles reflow; market selector narrows to 176px on small screens; Filters button becomes icon-only (`aria-label="Filters"` preserved for tests); view toggle (list/map) hidden < `sm`; PropertyCard restructured: image stacks on top on mobile, metric grid is `grid-cols-3` on mobile vs `grid-cols-6` on desktop, and a new mobile-only action row with Fair Value + Underwrite + ★ watch replaces the 128px right sidebar which is `hidden md:flex`.
+- **IntelligencePage** — topbar collapses to icon-only action buttons progressively (`hidden md:inline` / `hidden lg:inline`) with preserved aria-labels; breadcrumb hidden on mobile in favor of the MobileNav page title; hero image section stacks address + price vertically at `< md`; all `grid-cols-3 gap-5 + col-span-2` overview/valuation/risk layouts became `grid-cols-1 lg:grid-cols-3 + lg:col-span-2` so the right sidebar drops under the main column; `grid-cols-4` stat rows became `grid-cols-2 md:grid-cols-4`; P&L becomes single-column then two columns at `sm:`.
+- **ReportPage** — LP / CMA / Property-Brief headers reflow from right-aligned metadata to stacked blocks at `< sm`; container padding reduced on mobile; snapshot grids go `grid-cols-2 md:grid-cols-4` (LP 8-tile) and `grid-cols-1 sm:grid-cols-3` (CMA 3-col); print CSS preserved.
+- **LoginPage** — already mobile-first; no change needed (max-w-sm centered with px-4).
+
+### Tier 2 — functional mobile
+
+- **PortfolioPage** — outer layout switches to `flex-col md:flex-row`; left holdings panel becomes a top section capped at `max-h-[50vh]` with a divider instead of a side border on mobile; stat-card grids go from 3-col fixed to `grid-cols-1 sm:grid-cols-3`; chart panels collapse to single column at `< lg`.
+- **MarketPulsePage** — header stacks below `sm:`, market selector grows to full-width on mobile, internal price/rent-trend 2-col grid collapses to single column at `< sm`.
+- **CopilotPage** — header subtitle abbreviated on mobile; "Powered by Claude" hidden `< md`; property context banner uses `flex-wrap` with truncated address; memo button text shortens to "Memo" / "View" on mobile, View-Intelligence link hidden `< md`; suggestion chips go `grid-cols-1 sm:grid-cols-2`.
+- **SettingsPage** — new mobile-only horizontal scrollable pill strip replaces the 200px desktop sidebar (`hidden md:block`); each pill shows section icon + label, active state matches existing amber accent.
+
+### Tier 3 — basic no-horizontal-scroll (complex pages)
+
+- **UnderwritePage** — header fully reflows: strategy tabs move to their own scrollable row on mobile, save/share/memo collapse to icon-only; 272px assumptions sidebar becomes a `max-h-[45vh]` top block with border-bottom on mobile; 5-col key metrics → `grid-cols-2 sm:grid-cols-3 lg:grid-cols-5`; P&L + Scenarios 2-col becomes 1-col at `< lg`; Additional Metrics 4-col becomes 2-col on mobile.
+- **ClientsPage**, **DealRoomsPage**, **LenderPage** — same 300px-sidebar-to-top-section pattern (`max-h-[40-45vh] border-b md:border-b-0`); headers add `gap-3` + responsive padding.
+- **AlertsPage** — header padding and gap reflow.
+
+### Tailwind breakpoints used
+
+- `< sm` (< 640px) — phones
+- `sm` (640px+) — phones landscape / small tablets
+- `md` (768px+) — tablets / app shell transition point
+- `lg` (1024px+) — laptops
+- `xl` (1280px+) — desktops
+
+### Test + build verification
+
+- Frontend: **75 / 75 vitest pass** after fixing 2 aria-label casing regressions (`Filters` and `Run Full Analysis`)
+- Backend: **102 / 102 pytest pass** (unaffected)
 - TypeScript: **0 errors** (`tsc --noEmit`)
+- Vite production build: clean, 1.25MB bundle / 343KB gzipped
+- No new dependencies added
+
+### Not yet done
+
+- Bottom tab bar for primary destinations (kept hamburger-only for now to ship fast; can add later)
+- Mobile-specific optimizations of the chart-heavy pages (Recharts renders OK on small screens but text sizes are desktop-tuned)
+- Touch-specific interaction polish (hover states, tap highlights)
+- Map view on mobile for SearchPage — currently only list view shows; map toggle hidden `< sm` because the split map+list needs a full redesign for mobile
+
+---
+
+## Current Test Status (end of Sprint 6 + Mobile Addendum)
+
+- Frontend: **75 tests passing** (Vitest), **0 TypeScript errors** (`tsc --noEmit`), vite production build clean
+- Backend: **102 tests passing** (pytest)
+  - Tasks 1/2/3/7 suites: `test_api_v1.py`, `test_webhooks.py`, `test_off_market.py`, `test_markets.py`
+  - Tasks 4/5/6 suites: `test_renovation.py`, `test_lp_report.py`, `test_tour.py`
+- Live HTTP smoke-tested on Supabase DB (migration 008 applied):
+  - `/markets/supported`, `/properties/{id}/off-market-signals`, `/properties/search?off_market_only=true`, `/api/v1/*` (auth + envelope + rate limit headers + monthly counter)
+  - `/properties/{id}/renovation-estimate` (state multipliers verified: CA/TX = 1.47×)
+  - `/portfolio/lp-report` (end-to-end with real Claude narrative)
+  - `/tour/scan-address` (auth codes verified; Claude path unit-tested)

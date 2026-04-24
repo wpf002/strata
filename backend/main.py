@@ -7,7 +7,8 @@ from pydantic import BaseModel
 
 from .config import get_settings
 from .routers import properties, underwriting, portfolio, market, users, search
-from .routers import copilot, clients, reports, deal_rooms
+from .routers import copilot, clients, reports, leads
+from .routers import markets as markets_router
 
 settings = get_settings()
 log = logging.getLogger(__name__)
@@ -61,7 +62,8 @@ app.include_router(search.router)
 app.include_router(copilot.router)
 app.include_router(clients.router)
 app.include_router(reports.router)
-app.include_router(deal_rooms.router)
+app.include_router(markets_router.router)
+app.include_router(leads.router)
 
 
 @app.get("/health")

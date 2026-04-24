@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
+import MobileNav from './components/MobileNav';
 import SearchPage from './pages/SearchPage';
 import IntelligencePage from './pages/IntelligencePage';
 import UnderwritePage from './pages/UnderwritePage';
@@ -8,11 +9,10 @@ import CopilotPage from './pages/CopilotPage';
 import LoginPage from './pages/LoginPage';
 import MarketPulsePage from './pages/MarketPulsePage';
 import ClientsPage from './pages/ClientsPage';
-import LenderPage from './pages/LenderPage';
 import SettingsPage from './pages/SettingsPage';
 import AlertsPage from './pages/AlertsPage';
-import DealRoomsPage from './pages/DealRoomsPage';
 import ReportPage from './pages/ReportPage';
+import LeadsPage from './pages/LeadsPage';
 import { useAuth } from './contexts/AuthContext';
 
 export default function App() {
@@ -38,24 +38,26 @@ export default function App() {
 
         {/* App shell with sidebar */}
         <Route path="*" element={
-          <div className="flex h-screen overflow-hidden grid-bg">
+          <div className="flex flex-col md:flex-row h-screen overflow-hidden grid-bg">
             <Sidebar />
-            <main className="flex-1 overflow-hidden flex flex-col bg-navy-950/50">
-              <Routes>
-                <Route path="/" element={<SearchPage />} />
-                <Route path="/intelligence/:id" element={<IntelligencePage />} />
-                <Route path="/intelligence" element={<IntelligencePage />} />
-                <Route path="/underwrite" element={<UnderwritePage />} />
-                <Route path="/portfolio" element={<PortfolioPage />} />
-                <Route path="/copilot" element={<CopilotPage />} />
-                <Route path="/market" element={<MarketPulsePage />} />
-                <Route path="/clients" element={<ClientsPage />} />
-                <Route path="/lender" element={<LenderPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/alerts" element={<AlertsPage />} />
-                <Route path="/deal-rooms" element={<DealRoomsPage />} />
-              </Routes>
-            </main>
+            <div className="flex-1 flex flex-col overflow-hidden min-w-0 bg-navy-950/50">
+              <MobileNav />
+              <main className="flex-1 overflow-hidden flex flex-col min-w-0">
+                <Routes>
+                  <Route path="/" element={<SearchPage />} />
+                  <Route path="/intelligence/:id" element={<IntelligencePage />} />
+                  <Route path="/intelligence" element={<IntelligencePage />} />
+                  <Route path="/underwrite" element={<UnderwritePage />} />
+                  <Route path="/portfolio" element={<PortfolioPage />} />
+                  <Route path="/copilot" element={<CopilotPage />} />
+                  <Route path="/market" element={<MarketPulsePage />} />
+                  <Route path="/clients" element={<ClientsPage />} />
+                  <Route path="/leads" element={<LeadsPage />} />
+                  <Route path="/settings" element={<SettingsPage />} />
+                  <Route path="/alerts" element={<AlertsPage />} />
+                </Routes>
+              </main>
+            </div>
           </div>
         } />
       </Routes>

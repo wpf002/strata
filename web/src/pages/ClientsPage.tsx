@@ -686,7 +686,7 @@ export default function ClientsPage() {
     return (
       <div className="flex flex-col h-full page-fade">
         {showModal && <ClientModal title="Add Client" onClose={() => setShowModal(false)} onSave={handleCreate} />}
-        <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">
+        <div className="px-4 md:px-6 py-3 md:py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0 gap-3">
           <div>
             <h1 className="text-lg font-semibold text-white">Clients</h1>
             <p className="text-sm text-slate-500">Match properties to client criteria</p>
@@ -734,7 +734,7 @@ export default function ClientsPage() {
         />
       )}
 
-      <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">
+      <div className="px-4 md:px-6 py-3 md:py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0 gap-3">
         <div>
           <h1 className="text-lg font-semibold text-white">Clients</h1>
           <p className="text-sm text-slate-500">{clients.length} client{clients.length !== 1 ? 's' : ''} · property matching</p>
@@ -742,9 +742,9 @@ export default function ClientsPage() {
         <button className="btn-primary text-sm" onClick={() => setShowModal(true)}><Plus size={14} /> Add Client</button>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
         {/* Left panel — client roster */}
-        <div className="w-[300px] flex-shrink-0 border-r border-white/5 flex flex-col overflow-y-auto px-3 py-3 space-y-1.5">
+        <div className="w-full md:w-[300px] flex-shrink-0 border-r border-white/5 flex flex-col overflow-y-auto px-3 py-3 space-y-1.5 max-h-[40vh] md:max-h-none border-b md:border-b-0">
           {clients.map(c => {
             const lastActive = clientLastActive(c.id);
             const propCount = clientPropertyCount(c.id);

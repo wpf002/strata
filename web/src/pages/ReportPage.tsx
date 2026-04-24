@@ -5,7 +5,7 @@
  */
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Printer, ExternalLink, AlertTriangle, CheckCircle, Clock, TrendingDown } from 'lucide-react';
+import { Printer, ExternalLink, AlertTriangle } from 'lucide-react';
 import { clsx } from 'clsx';
 import { fmt } from '../components/UI';
 
@@ -15,10 +15,10 @@ interface ReportContent {
   reportId: string;
   reportType: 'cma' | 'property_brief';
   generatedAt: string;
-  clientName: string;
+  clientName?: string;
   agentMessage?: string;
-  agent: { name: string; email: string; phone?: string; brokerage?: string };
-  property: {
+  agent?: { name: string; email: string; phone?: string; brokerage?: string };
+  property?: {
     id: string; address: string; city: string; state: string; zip: string;
     price: number; beds: number; baths: number; sqft: number; yearBuilt?: number;
     type: string; dealScore: number; image?: string;
@@ -39,7 +39,7 @@ interface ReportContent {
   topRiskFlags?: string[];
   neighborhoodScore?: number;
   marketRegime?: string;
-  disclaimer: string;
+  disclaimer?: string;
 }
 
 const REC_STYLES: Record<string, string> = {
@@ -73,10 +73,12 @@ function SectionBlock({ title, children }: { title: string; children: React.Reac
 }
 
 function CMAReport({ report }: { report: ReportContent }) {
-  const { agent, property, sections = {}, recommendation, clientName, generatedAt, disclaimer } = report;
+  const { sections = {}, recommendation, clientName, generatedAt, disclaimer } = report;
+  const agent = report.agent!;
+  const property = report.property!;
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8 print:px-0 print:py-0">
+    <div className="max-w-4xl mx-auto px-4 md:px-6 py-6 md:py-8 print:px-0 print:py-0">
       {/* Print CSS */}
       <style>{`
         @media print {
@@ -92,7 +94,7 @@ function CMAReport({ report }: { report: ReportContent }) {
       `}</style>
 
       {/* Header */}
-      <div className="flex items-start justify-between mb-8 pb-6 border-b border-white/10">
+      <div className="flex flex-col sm:flex-row items-start justify-between gap-4 mb-6 md:mb-8 pb-6 border-b border-white/10">
         <div>
           <p className="text-xs text-slate-500 mb-0.5">Prepared for</p>
           <h2 className="text-xl font-bold text-white">{clientName}</h2>
@@ -139,7 +141,7 @@ function CMAReport({ report }: { report: ReportContent }) {
       {/* Sections */}
       {sections.valuation && (
         <SectionBlock title="Valuation Analysis">
-          <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4">
             <div className="glass rounded-xl p-4 text-center">
               <p className="text-xs text-slate-500 mb-1">Fair Value Range</p>
               <p className="text-sm font-bold font-mono text-white">
@@ -204,7 +206,7 @@ function CMAReport({ report }: { report: ReportContent }) {
 
       {sections.financials && (
         <SectionBlock title="Financial Analysis">
-          <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4">
             <div className="glass rounded-xl p-4 text-center">
               <p className="text-xs text-slate-500 mb-1">Cap Rate</p>
               <p className="text-sm font-bold font-mono text-amber-400">{sections.financials.capRate}%</p>
@@ -256,13 +258,15 @@ function CMAReport({ report }: { report: ReportContent }) {
 }
 
 function PropertyBriefReport({ report }: { report: ReportContent }) {
-  const { agent, property, valuation, rentEstimate, topRiskFlags = [], neighborhoodScore, marketRegime, clientName, agentMessage, generatedAt, disclaimer } = report;
+  const { valuation, rentEstimate, topRiskFlags = [], neighborhoodScore, marketRegime, clientName, agentMessage, generatedAt, disclaimer } = report;
+  const agent = report.agent!;
+  const property = report.property!;
   const navigate = useNavigate();
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-8">
+    <div className="max-w-2xl mx-auto px-4 md:px-6 py-6 md:py-8">
       {/* Header */}
-      <div className="flex items-start justify-between mb-6 pb-5 border-b border-white/10">
+      <div className="flex flex-col sm:flex-row items-start justify-between gap-3 mb-6 pb-5 border-b border-white/10">
         <div>
           <p className="text-xs text-slate-500 mb-0.5">Property Brief for</p>
           <h2 className="text-lg font-bold text-white">{clientName}</h2>

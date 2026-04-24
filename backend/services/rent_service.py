@@ -78,6 +78,20 @@ def _under_quota() -> bool:
     return usage.get(_month_key(), 0) < limit
 
 
+def get_rentcast_usage() -> dict:
+    """Expose current RentCast call count for admin/usage endpoints."""
+    limit = get_settings().rentcast_monthly_limit
+    usage = _load_usage()
+    count = usage.get(_month_key(), 0)
+    return {
+        "month": _month_key(),
+        "calls_this_month": count,
+        "limit": limit,
+        "remaining": max(0, limit - count) if limit > 0 else 0,
+        "enabled": limit > 0,
+    }
+
+
 def _increment_usage() -> None:
     usage = _load_usage()
     key = _month_key()

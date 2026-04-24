@@ -170,3 +170,4 @@ export async function registerPushToken(token: string, platform: 'ios' | 'androi
     body: JSON.stringify({ token, platform }),
   });
 }
+

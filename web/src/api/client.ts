@@ -1,4 +1,7 @@
-import type { Property, UnderwritingInputs, UnderwritingOutputs, Portfolio, MarketData, SearchFilters } from '../types';
+import type {
+  Property, UnderwritingInputs, UnderwritingOutputs, Portfolio, MarketData, SearchFilters,
+  SupportedMarket, OffMarketSignalResult,
+} from '../types';
 import { mockProperties, mockPortfolioHoldings, mockMarketData } from '../data/mockData';
 import { supabase } from '../lib/supabase';
 
@@ -76,6 +79,8 @@ export async function getProperties(filters?: Partial<SearchFilters>): Promise<P
   if (filters?.minCapRate) params.set('min_cap_rate', String(filters.minCapRate));
   if (filters?.propertyTypes?.length) filters.propertyTypes.forEach(t => params.append('property_types', t));
   if (filters?.sortBy) params.set('sort_by', filters.sortBy);
+  if (filters?.offMarketOnly) params.set('off_market_only', 'true');
+  if (filters?.minMotivationScore != null) params.set('min_motivation_score', String(filters.minMotivationScore));
   const data = await get<any[]>(`/properties/search?${params}`);
   return data.map(apiToProperty);
 }
@@ -274,7 +279,137 @@ function apiToProperty(p: any): Property {
     neighborhood: p.neighborhood, neighborhoodScore: p.neighborhoodScore,
     marketRegime: p.marketRegime, riskFlags: p.riskFlags ?? [],
     image: p.image, lat: p.lat, lng: p.lng,
+    motivationScore: p.motivationScore,
+    offMarketSignals: p.offMarketSignals ?? [],
   };
+}
+
+// ── Markets ──────────────────────────────────────────────────────────────────
+export async function getSupportedMarkets(): Promise<SupportedMarket[]> {
+  const raw = await get<{ markets: SupportedMarket[] }>('/markets/supported');
+  return raw.markets;
+}
+
+// ── Off-market signals ───────────────────────────────────────────────────────
+export async function getOffMarketSignals(propertyId: string): Promise<OffMarketSignalResult> {
+  const raw = await get<any>(`/properties/${propertyId}/off-market-signals`);
+  return {
+    hasSignals: raw.has_signals ?? raw.hasSignals ?? false,
+    motivationScore: raw.motivation_score ?? raw.motivationScore ?? 0,
+    signals: (raw.signals ?? []).map((s: any) => ({
+      type: s.type, label: s.label, severity: s.severity,
+    })),
+  };
+}
+
+// ── Renovation estimate ──────────────────────────────────────────────────────
+export type RenovationScope =
+  | 'roof' | 'hvac' | 'kitchen' | 'bathrooms' | 'flooring' | 'windows'
+  | 'electrical' | 'plumbing' | 'foundation' | 'exterior' | 'cosmetic' | 'full_gut';
+
+export type RenovationCondition = 'poor' | 'fair' | 'average' | 'good';
+
+export interface RenovationEstimateRequest {
+  scope: RenovationScope[];
+  condition: RenovationCondition;
+  sqft: number;
+  yearBuilt?: number | null;
+  propertyType?: string;
+  state?: string;
+  baths?: number | null;
+  fairValueLow?: number | null;
+  fairValueHigh?: number | null;
+}
+
+export interface RenovationLineItem {
+  scope: string;
+  low: number;
+  high: number;
+  notes: string;
+}
+
+export interface RenovationEstimate {
+  lineItems: RenovationLineItem[];
+  subtotalLow: number;
+  subtotalHigh: number;
+  contingency10Pct: number;
+  contingency20Pct: number;
+  totalLow: number;
+  totalHigh: number;
+  costPerSqftLow: number;
+  costPerSqftHigh: number;
+  arvLow: number | null;
+  arvHigh: number | null;
+  upliftLowPct: number;
+  upliftHighPct: number;
+  scopeOfWork: string;
+  scope: string[];
+  condition: string;
+}
+
+export async function getRenovationEstimate(propertyId: string, body: RenovationEstimateRequest): Promise<RenovationEstimate> {
+  const raw = await post<any>(`/properties/${propertyId}/renovation-estimate`, {
+    scope: body.scope,
+    condition: body.condition,
+    sqft: body.sqft,
+    year_built: body.yearBuilt,
+    property_type: body.propertyType ?? 'Single Family',
+    state: body.state ?? 'TX',
+    baths: body.baths,
+    fair_value_low: body.fairValueLow,
+    fair_value_high: body.fairValueHigh,
+  });
+  return {
+    lineItems: (raw.line_items ?? []).map((i: any) => ({ scope: i.scope, low: i.low, high: i.high, notes: i.notes })),
+    subtotalLow: raw.subtotal_low,
+    subtotalHigh: raw.subtotal_high,
+    contingency10Pct: raw.contingency_10pct,
+    contingency20Pct: raw.contingency_20pct,
+    totalLow: raw.total_low,
+    totalHigh: raw.total_high,
+    costPerSqftLow: raw.cost_per_sqft_low,
+    costPerSqftHigh: raw.cost_per_sqft_high,
+    arvLow: raw.arv_low,
+    arvHigh: raw.arv_high,
+    upliftLowPct: raw.uplift_low_pct,
+    upliftHighPct: raw.uplift_high_pct,
+    scopeOfWork: raw.scope_of_work,
+    scope: raw.scope ?? [],
+    condition: raw.condition ?? 'average',
+  };
+}
+
+// ── Leads / Activity ─────────────────────────────────────────────────────────
+export type ActivityType = 'viewed' | 'underwritten' | 'reported' | 'saved' | 'copilot_asked';
+
+export interface ActivityCount {
+  count: number;
+  lastAt: string | null;
+}
+
+export interface Lead {
+  propertyId: string;
+  address: string;
+  city: string | null;
+  state: string | null;
+  price: number | null;
+  image: string | null;
+  dealScore: number | null;
+  activities: Partial<Record<ActivityType, ActivityCount>>;
+  lastActive: string | null;
+  engagementScore: number;
+}
+
+export async function logActivity(propertyId: string, activityType: ActivityType, metadata?: Record<string, unknown>): Promise<void> {
+  try {
+    await post('/activity', { property_id: propertyId, activity_type: activityType, metadata }, true);
+  } catch {
+    // Activity logging is best-effort — failures shouldn't interrupt the UX.
+  }
+}
+
+export async function listLeads(): Promise<Lead[]> {
+  return get<Lead[]>('/leads', true);
 }
 
 function apiToHolding(h: any) {

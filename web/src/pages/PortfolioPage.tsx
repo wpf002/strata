@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, ArrowUpRight, RefreshCw, AlertCircle, DollarSign, Building2, TrendingUp, X, Home, Trash2, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { Plus, ArrowUpRight, RefreshCw, AlertCircle, DollarSign, Building2, TrendingUp, X, Home, Trash2, Loader2 } from 'lucide-react';
 import { getPortfolio, createHolding, updateHolding, deleteHolding } from '../api/client';
 import type { Portfolio, PortfolioHolding } from '../types';
 import { StatCard, MetricRow, ProgressBar, fmt } from '../components/UI';
@@ -409,7 +409,7 @@ export default function PortfolioPage() {
     return (
       <div className="flex flex-col h-full page-fade">
         {showAddModal && <HoldingModal title="Add Property" onClose={() => setShowAddModal(false)} onSave={handleAdd} />}
-        <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">
+        <div className="px-4 md:px-6 py-3 md:py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0 gap-3">
           <div>
             <h1 className="text-lg font-semibold text-white">Portfolio</h1>
             <p className="text-sm text-slate-500">0 properties</p>
@@ -472,7 +472,7 @@ export default function PortfolioPage() {
         </div>
       )}
 
-      <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">
+      <div className="px-4 md:px-6 py-3 md:py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0 gap-3">
         <div>
           <h1 className="text-lg font-semibold text-white">Portfolio</h1>
           <p className="text-sm text-slate-500">{portfolio.holdings.length} properties · Health Score: <span className="text-amber-400 font-mono font-semibold">{portfolio.healthScore}/100</span></p>
@@ -483,9 +483,9 @@ export default function PortfolioPage() {
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left sidebar */}
-        <div className="w-[360px] flex-shrink-0 border-r border-white/5 flex flex-col overflow-hidden">
+      <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
+        {/* Left sidebar — becomes top section on mobile */}
+        <div className="w-full md:w-[360px] flex-shrink-0 border-r border-white/5 flex flex-col overflow-hidden max-h-[50vh] md:max-h-none border-b md:border-b-0">
           <div className="px-4 py-4 border-b border-white/5 flex-shrink-0 space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <StatCard label="Total Value" value={fmt.compact(portfolio.totalValue)} sub={`+${fmt.pct(((portfolio.totalValue - portfolio.holdings.reduce((s,h)=>s+h.purchasePrice,0)) / portfolio.holdings.reduce((s,h)=>s+h.purchasePrice,0)) * 100)} since purchase`} color="gold" />
@@ -500,7 +500,7 @@ export default function PortfolioPage() {
             {portfolio.holdings.map(h => (
               <div key={h.id} onClick={() => setActiveId(h.id)} className={clsx('rounded-xl p-4 cursor-pointer transition-all border', activeId === h.id ? 'border-amber-500/40 bg-amber-500/5' : 'border-white/5 glass hover:border-white/15')}>
                 <div className="flex items-start gap-3">
-                  <img src={h.image} alt="" className="w-14 h-14 rounded-lg object-cover flex-shrink-0" onError={e => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=200&q=60'; }} />
+                  <img src={h.image} alt="" className="w-14 h-14 rounded-lg object-cover flex-shrink-0" onError={e => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=1200&q=85&auto=format&fit=crop'; }} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-white truncate">{h.address.split(',')[0]}</p>
                     <p className="text-xs text-slate-500 truncate">{h.address.split(',').slice(1).join(',').trim()}</p>
@@ -524,14 +524,14 @@ export default function PortfolioPage() {
         </div>
 
         {/* Right detail */}
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          <div className="grid grid-cols-3 gap-4 mb-5">
+        <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 md:py-5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 mb-5">
             <StatCard label="Current Value" value={fmt.compact(active.currentValue)} sub={`Purchased ${fmt.compact(active.purchasePrice)}`} color="gold" trend={active.appreciation} />
             <StatCard label="Equity" value={fmt.compact(active.equity)} sub={`${fmt.pct((active.equity / active.currentValue) * 100)} equity`} color="green" />
             <StatCard label="Total Return" value={fmt.pct(active.totalReturn)} sub="appreciation + cash flow" color="green" />
           </div>
 
-          <div className="grid grid-cols-2 gap-5 mb-5">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5 mb-5">
             <div className="glass rounded-xl p-5">
               <h3 className="text-sm font-semibold text-white mb-3">Portfolio Equity Growth</h3>
               <div className="h-36">
@@ -631,6 +631,7 @@ export default function PortfolioPage() {
           </div>
         </div>
       </div>
+
     </div>
   );
 }

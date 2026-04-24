@@ -29,6 +29,7 @@ venv/
 
 # Runtime caches
 backend/.rentcast/
+backend/.rapidapi/
 
 # Misc
 .DS_Store

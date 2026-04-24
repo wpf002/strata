@@ -380,14 +380,37 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col h-full page-fade overflow-hidden">
-      <div className="px-6 py-4 border-b border-white/5 flex-shrink-0">
+      <div className="px-4 md:px-6 py-3 md:py-4 border-b border-white/5 flex-shrink-0">
         <h1 className="text-lg font-semibold text-white">Settings</h1>
-        <p className="text-sm text-slate-500">Manage your profile, strategy, and preferences.</p>
+        <p className="text-sm text-slate-500 hidden sm:block">Manage your profile, strategy, and preferences.</p>
+      </div>
+
+      {/* Mobile section picker (scrollable pills) */}
+      <div className="md:hidden border-b border-white/5 overflow-x-auto flex-shrink-0">
+        <div className="flex gap-1.5 px-4 py-2.5 min-w-min">
+          {SECTIONS.map(s => {
+            const active = section === s.id;
+            return (
+              <button
+                key={s.id}
+                onClick={() => setSection(s.id)}
+                className={clsx(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium transition-all whitespace-nowrap flex-shrink-0',
+                  active
+                    ? 'bg-amber-500/15 text-amber-400 border-amber-500/40'
+                    : 'border-white/10 text-slate-400 hover:border-white/20'
+                )}
+              >
+                <s.icon size={12} /> {s.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Section nav */}
-        <div className="w-[200px] flex-shrink-0 border-r border-white/5 px-3 py-4 space-y-0.5">
+        {/* Desktop section nav */}
+        <div className="hidden md:block w-[200px] flex-shrink-0 border-r border-white/5 px-3 py-4 space-y-0.5">
           {SECTIONS.map(s => {
             const active = section === s.id;
             return (
@@ -402,8 +425,8 @@ export default function SettingsPage() {
         </div>
 
         {/* Section content */}
-        <div className="flex-1 overflow-y-auto px-8 py-6">
-          <h2 className="text-base font-semibold text-white mb-5">{SECTIONS.find(s => s.id === section)?.label}</h2>
+        <div className="flex-1 overflow-y-auto px-4 md:px-8 py-4 md:py-6">
+          <h2 className="text-base font-semibold text-white mb-4 md:mb-5">{SECTIONS.find(s => s.id === section)?.label}</h2>
           {section === 'profile' && <ProfileSection profile={profile} onSave={saveProfile} />}
           {section === 'agent' && <AgentProfileSection settings={profile.strategySettings} onSave={saveStrategy} />}
           {section === 'strategy' && <StrategySection settings={profile.strategySettings} onSave={saveStrategy} />}

@@ -35,6 +35,28 @@ export interface Property {
   image: string;
   lat: number;
   lng: number;
+  motivationScore?: number;
+  offMarketSignals?: OffMarketSignal[];
+}
+
+export interface OffMarketSignal {
+  type: string;
+  label: string;
+  severity: 'high' | 'medium' | 'low';
+}
+
+export interface OffMarketSignalResult {
+  hasSignals: boolean;
+  signals: OffMarketSignal[];
+  motivationScore: number;
+}
+
+export interface SupportedMarket {
+  marketId: string;
+  city: string;
+  state: string;
+  stateCode: string;
+  isLaunchMarket: boolean;
 }
 
 export interface RiskFlag {
@@ -143,6 +165,8 @@ export interface SearchFilters {
   propertyTypes: string[];
   strategies: string[];
   sortBy: string;
+  offMarketOnly?: boolean;
+  minMotivationScore?: number;
 }
 
 // API response wrapper

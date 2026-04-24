@@ -35,7 +35,7 @@ export default function AlertsPage() {
 
   return (
     <div className="flex flex-col h-full page-fade">
-      <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">
+      <div className="px-4 md:px-6 py-3 md:py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0 gap-3">
         <div>
           <h1 className="text-lg font-semibold text-white">Alerts</h1>
           <p className="text-sm text-slate-500">{searches.filter(s => s.alertEnabled).length} active · {totalWatched} properties watched</p>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Calculator, Save, Share2, FileText, ChevronDown, CheckCircle, XCircle, ChevronRight } from 'lucide-react';
-import { getProperty, calculateUnderwriting } from '../api/client';
+import { Calculator, Save, Share2, FileText, ChevronDown, CheckCircle, XCircle, ChevronRight, Hammer } from 'lucide-react';
+import { getProperty, calculateUnderwriting, getRenovationEstimate, logActivity } from '../api/client';
+import type { RenovationScope, RenovationCondition, RenovationEstimate } from '../api/client';
 import { supabase } from '../lib/supabase';
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? '';
@@ -10,7 +11,7 @@ import { ScoreBadge, RiskBadge, MetricRow, fmt } from '../components/UI';
 import { clsx } from 'clsx';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
-const STRATEGIES = ['Long-Term Rental', 'BRRRR', 'Fix & Flip', 'Short-Term Rental', 'House Hack', 'Appreciation Play'];
+const STRATEGIES = ['Long-Term Rental', 'BRRRR', 'Fix & Flip', 'Short-Term Rental', 'House Hack', 'Appreciation Play', 'Renovation'];
 const LOAN_TYPES = ['30yr Fixed', '15yr Fixed', 'DSCR Loan', 'Interest Only', 'Hard Money'];
 
 // ── Closing Costs ─────────────────────────────────────────────────────────────
@@ -146,9 +147,12 @@ interface BrrrrResult {
   [key: string]: number | string;
 }
 
-function BrrrrPanel({ inputs }: { inputs: Omit<UnderwritingInputs, 'propertyId'> & { propertyId: string } }) {
+function BrrrrPanel({ inputs, rehabOverride }: { inputs: Omit<UnderwritingInputs, 'propertyId'> & { propertyId: string }; rehabOverride?: number | null }) {
   const [rehabCost, setRehabCost] = useState(35000);
   const [arv, setArv] = useState(Math.round(inputs.purchasePrice * 1.25 / 5000) * 5000);
+  useEffect(() => {
+    if (rehabOverride != null) setRehabCost(rehabOverride);
+  }, [rehabOverride]);
   const [refiLtv, setRefiLtv] = useState(75);
   const [refiRate, setRefiRate] = useState(7.0);
   const [result, setResult] = useState<BrrrrResult | null>(null);
@@ -399,6 +403,257 @@ function StrPanel({ inputs }: { inputs: Omit<UnderwritingInputs, 'propertyId'> &
   );
 }
 
+// ── Renovation Panel ──────────────────────────────────────────────────────────
+
+const SCOPE_LABELS: Record<RenovationScope, string> = {
+  roof: 'Roof',
+  hvac: 'HVAC',
+  kitchen: 'Kitchen',
+  bathrooms: 'Bathrooms',
+  flooring: 'Flooring',
+  windows: 'Windows',
+  electrical: 'Electrical',
+  plumbing: 'Plumbing',
+  foundation: 'Foundation',
+  exterior: 'Exterior',
+  cosmetic: 'Cosmetic',
+  full_gut: 'Full Gut',
+};
+
+const ALL_SCOPES: RenovationScope[] = [
+  'roof', 'hvac', 'kitchen', 'bathrooms', 'flooring', 'windows',
+  'electrical', 'plumbing', 'foundation', 'exterior', 'cosmetic', 'full_gut',
+];
+
+function RenovationPanel({
+  property,
+  onApplyToBrrrr,
+}: {
+  property: Property;
+  onApplyToBrrrr: (rehabCost: number) => void;
+}) {
+  const [scope, setScope] = useState<Set<RenovationScope>>(new Set(['cosmetic', 'kitchen', 'bathrooms']));
+  const [condition, setCondition] = useState<RenovationCondition>('average');
+  const [contingency, setContingency] = useState<'low' | 'high'>('high');
+  const [result, setResult] = useState<RenovationEstimate | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sowOpen, setSowOpen] = useState(false);
+  const [applied, setApplied] = useState(false);
+
+  const toggle = (s: RenovationScope) => {
+    setScope(prev => {
+      const n = new Set(prev);
+      if (n.has(s)) n.delete(s); else n.add(s);
+      return n;
+    });
+  };
+
+  const run = async () => {
+    if (scope.size === 0) {
+      setError('Select at least one scope item.');
+      return;
+    }
+    setError(null);
+    setLoading(true);
+    try {
+      const r = await getRenovationEstimate(property.id, {
+        scope: Array.from(scope),
+        condition,
+        sqft: property.sqft,
+        yearBuilt: property.yearBuilt ?? null,
+        propertyType: property.type ?? 'Single Family',
+        state: property.state ?? 'TX',
+        baths: property.baths,
+        fairValueLow: property.fairValueLow,
+        fairValueHigh: property.fairValueHigh,
+      });
+      setResult(r);
+    } catch (e: any) {
+      setError(String(e?.message ?? 'Unable to generate estimate.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const totalMid = result ? Math.round((result.totalLow + result.totalHigh) / 2) : 0;
+  const totalShown = result ? (contingency === 'low' ? result.totalLow : result.totalHigh) : 0;
+
+  const applyToBrrrr = () => {
+    if (!result) return;
+    onApplyToBrrrr(totalMid);
+    setApplied(true);
+    setTimeout(() => setApplied(false), 2500);
+  };
+
+  return (
+    <div className="glass rounded-xl p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+          <Hammer size={14} className="text-amber-500" /> Renovation Estimate
+        </h3>
+        <span className="text-xs text-slate-500">{property.state} · {fmt.num(property.sqft)} sqft · {property.baths}ba</span>
+      </div>
+
+      {/* Scope checklist */}
+      <div>
+        <p className="text-xs text-slate-400 mb-2 font-semibold uppercase tracking-wider">Scope of Work</p>
+        <div className="grid grid-cols-3 gap-1.5">
+          {ALL_SCOPES.map(s => {
+            const checked = scope.has(s);
+            return (
+              <button
+                key={s}
+                onClick={() => toggle(s)}
+                className={clsx(
+                  'text-xs px-3 py-2 rounded-lg border transition-all text-left',
+                  checked
+                    ? 'bg-amber-500/15 text-amber-400 border-amber-500/40'
+                    : 'text-slate-500 border-white/10 hover:border-white/20'
+                )}
+              >
+                <span className="inline-block w-3 h-3 mr-1.5 rounded border border-current align-middle">
+                  {checked && <CheckCircle size={11} className="-ml-px -mt-px" />}
+                </span>
+                {SCOPE_LABELS[s]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Condition selector */}
+      <div>
+        <p className="text-xs text-slate-400 mb-2 font-semibold uppercase tracking-wider">Condition</p>
+        <div className="flex gap-1.5">
+          {(['poor', 'fair', 'average', 'good'] as RenovationCondition[]).map(c => (
+            <button
+              key={c}
+              onClick={() => setCondition(c)}
+              className={clsx(
+                'flex-1 text-xs px-3 py-2 rounded-lg border capitalize transition-all',
+                condition === c
+                  ? 'bg-amber-500/15 text-amber-400 border-amber-500/40'
+                  : 'text-slate-500 border-white/10 hover:border-white/20'
+              )}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <button onClick={run} disabled={loading || scope.size === 0} className="btn-primary w-full justify-center text-sm">
+        {loading ? 'Estimating…' : 'Estimate Costs'}
+      </button>
+
+      {error && <p className="text-xs text-red-400">{error}</p>}
+
+      {result && !loading && (
+        <div className="space-y-4">
+          {/* Line items table */}
+          <div>
+            <p className="text-xs text-slate-400 mb-2 font-semibold uppercase tracking-wider">Line Items</p>
+            <div className="glass rounded-lg border border-white/5 divide-y divide-white/5">
+              {result.lineItems.map(li => (
+                <div key={li.scope} className="flex items-start justify-between gap-4 px-4 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white capitalize">{li.scope.replace('_', ' ')}</p>
+                    <p className="text-[10px] text-slate-500">{li.notes}</p>
+                  </div>
+                  <p className="text-sm font-mono text-slate-200 flex-shrink-0 whitespace-nowrap">
+                    {fmt.currency(li.low)} – {fmt.currency(li.high)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Subtotal + contingency */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="glass rounded-xl p-3 border border-white/5">
+              <p className="text-[10px] text-slate-500 uppercase tracking-wide">Subtotal</p>
+              <p className="text-base font-mono text-white">{fmt.currency(result.subtotalLow)} – {fmt.currency(result.subtotalHigh)}</p>
+            </div>
+            <div className="glass rounded-xl p-3 border border-white/5">
+              <p className="text-[10px] text-slate-500 uppercase tracking-wide">Contingency</p>
+              <div className="flex gap-1.5 mt-0.5">
+                {(['low', 'high'] as const).map(c => (
+                  <button
+                    key={c}
+                    onClick={() => setContingency(c)}
+                    className={clsx(
+                      'text-xs px-2.5 py-1 rounded border transition-all',
+                      contingency === c
+                        ? 'bg-amber-500/15 text-amber-400 border-amber-500/40'
+                        : 'text-slate-500 border-white/10'
+                    )}
+                  >
+                    +{c === 'low' ? '10%' : '20%'} ({fmt.currency(c === 'low' ? result.contingency10Pct : result.contingency20Pct)})
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Total + per-sqft */}
+          <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/5">
+            <div className="flex items-baseline justify-between mb-2">
+              <span className="text-sm text-slate-300">Total at +{contingency === 'low' ? '10%' : '20%'} contingency</span>
+              <span className="text-2xl font-bold font-mono text-amber-400">{fmt.currency(totalShown)}</span>
+            </div>
+            <div className="flex items-baseline justify-between text-xs text-slate-500">
+              <span>Range:</span>
+              <span className="font-mono">{fmt.currency(result.totalLow)} – {fmt.currency(result.totalHigh)}</span>
+            </div>
+            <div className="flex items-baseline justify-between text-xs text-slate-500">
+              <span>Per sqft:</span>
+              <span className="font-mono">${result.costPerSqftLow} – ${result.costPerSqftHigh}</span>
+            </div>
+          </div>
+
+          {/* ARV uplift */}
+          {result.arvLow && result.arvHigh && (
+            <div className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5">
+              <div className="flex items-baseline justify-between mb-1">
+                <span className="text-sm text-slate-300">Projected ARV</span>
+                <span className="text-lg font-bold font-mono text-emerald-400">{fmt.currency(result.arvLow)} – {fmt.currency(result.arvHigh)}</span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Uplift {result.upliftLowPct}%–{result.upliftHighPct}% above current fair value mid-point. ARV ranges assume a typical local market; verify with comps after renovation.
+              </p>
+            </div>
+          )}
+
+          {/* Apply to BRRRR */}
+          <button onClick={applyToBrrrr} className="btn-ghost w-full justify-center text-sm">
+            {applied ? <><CheckCircle size={14} /> Applied — switch to BRRRR tab</> : 'Add to BRRRR Analysis (pre-fill rehab cost)'}
+          </button>
+
+          {/* SOW narrative */}
+          <div className="glass rounded-xl border border-white/5">
+            <button onClick={() => setSowOpen(o => !o)} className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-white hover:text-amber-400 transition-colors">
+              <span className="flex items-center gap-2">
+                <ChevronRight size={14} className={clsx('transition-transform text-amber-500', sowOpen && 'rotate-90')} />
+                Scope of Work Narrative
+              </span>
+            </button>
+            {sowOpen && (
+              <div className="px-4 pb-4 text-sm text-slate-300 leading-relaxed whitespace-pre-line border-t border-white/5 pt-3">
+                {result.scopeOfWork}
+              </div>
+            )}
+          </div>
+
+          <p className="text-[10px] text-slate-600 leading-relaxed">
+            Estimate only. Actual cost depends on scope detail, finish level, permits, and contractor bids. Always verify with at least two licensed contractors before committing capital.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Small metric card ─────────────────────────────────────────────────────────
 
 function Metric({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
@@ -416,14 +671,18 @@ function Metric({ label, value, sub, color }: { label: string; value: string; su
 export default function UnderwritePage() {
   const [searchParams] = useSearchParams();
   const propertyId = searchParams.get('property') || 'p1';
+  const initialStrategy = searchParams.get('strategy');
 
   const [property, setProperty] = useState<Property | null>(null);
-  const [strategy, setStrategy] = useState('Long-Term Rental');
+  const [strategy, setStrategy] = useState(
+    initialStrategy && STRATEGIES.includes(initialStrategy) ? initialStrategy : 'Long-Term Rental'
+  );
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [outputs, setOutputs] = useState<UnderwritingOutputs | null>(null);
   const [saveLabel, setSaveLabel] = useState<'Save' | 'Saving…' | 'Saved!'>('Save');
   const [copied, setCopied] = useState(false);
   const [memoLabel, setMemoLabel] = useState<'Generate Memo' | 'Copied!'>('Generate Memo');
+  const [brrrrRehabOverride, setBrrrrRehabOverride] = useState<number | null>(null);
 
   const [inputs, setInputs] = useState<Omit<UnderwritingInputs, 'propertyId'>>({
     purchasePrice: 342000,
@@ -444,6 +703,7 @@ export default function UnderwritePage() {
       setProperty(p);
       setInputs(prev => ({ ...prev, purchasePrice: p.price, monthlyRent: p.rentEstMid }));
     });
+    logActivity(propertyId, 'underwritten');
   }, [propertyId]);
 
   const recalculate = useCallback(() => {
@@ -527,27 +787,27 @@ export default function UnderwritePage() {
   return (
     <div className="flex flex-col h-full page-fade overflow-hidden">
       {/* Header */}
-      <div className="px-6 py-3 border-b border-white/5 flex items-center gap-4 flex-shrink-0">
-        <Calculator size={16} className="text-amber-400" />
+      <div className="px-4 md:px-6 py-3 border-b border-white/5 flex flex-wrap items-center gap-3 md:gap-4 flex-shrink-0">
+        <Calculator size={16} className="text-amber-400 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-white truncate">{property.address}</p>
-          <p className="text-xs text-slate-500">STRATA Underwrite · {strategy}</p>
+          <p className="text-xs text-slate-500 truncate">STRATA Underwrite · {strategy}</p>
         </div>
-        <div className="flex items-center gap-1.5 overflow-x-auto">
+        <div className="order-3 md:order-none flex items-center gap-1.5 overflow-x-auto w-full md:w-auto -mx-4 px-4 md:mx-0 md:px-0">
           {STRATEGIES.map(s => (
-            <button key={s} onClick={() => setStrategy(s)} className={clsx('text-xs font-medium px-3 py-1.5 rounded-lg border transition-all whitespace-nowrap', strategy === s ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'text-slate-500 border-white/8 hover:border-white/20 hover:text-slate-400')}>{s}</button>
+            <button key={s} onClick={() => setStrategy(s)} className={clsx('text-xs font-medium px-3 py-1.5 rounded-lg border transition-all whitespace-nowrap flex-shrink-0', strategy === s ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'text-slate-500 border-white/8 hover:border-white/20 hover:text-slate-400')}>{s}</button>
           ))}
         </div>
-        <div className="flex items-center gap-2 ml-2 flex-shrink-0">
-          <button onClick={handleSave} className="btn-ghost text-xs py-1.5 px-3"><Save size={12} /> {saveLabel}</button>
-          <button onClick={handleShare} className="btn-ghost text-xs py-1.5 px-3"><Share2 size={12} /> {copied ? 'Copied!' : 'Share'}</button>
-          <button onClick={handleMemo} className="btn-primary text-xs py-2 px-4"><FileText size={12} /> {memoLabel}</button>
+        <div className="flex items-center gap-2 ml-auto md:ml-2 flex-shrink-0">
+          <button onClick={handleSave} aria-label={saveLabel} className="btn-ghost text-xs py-1.5 px-2.5 md:px-3"><Save size={12} /> <span className="hidden md:inline">{saveLabel}</span></button>
+          <button onClick={handleShare} aria-label="Share" className="btn-ghost text-xs py-1.5 px-2.5 md:px-3"><Share2 size={12} /> <span className="hidden md:inline">{copied ? 'Copied!' : 'Share'}</span></button>
+          <button onClick={handleMemo} className="btn-primary text-xs py-2 px-3 md:px-4"><FileText size={12} /> <span className="hidden sm:inline">{memoLabel}</span></button>
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
         {/* Assumptions */}
-        <div className="w-[272px] flex-shrink-0 overflow-y-auto border-r border-white/5 px-4 py-4 space-y-4">
+        <div className="w-full md:w-[272px] flex-shrink-0 overflow-y-auto border-r border-white/5 px-4 py-4 space-y-4 max-h-[45vh] md:max-h-none border-b md:border-b-0">
           {/* Purchase */}
           <div className="glass rounded-xl p-4">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Purchase</p>
@@ -594,7 +854,7 @@ export default function UnderwritePage() {
         </div>
 
         {/* Results */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-4 md:px-5 py-4 space-y-4 min-w-0">
           {/* Recommendation */}
           <div className={clsx('rounded-xl p-4 border flex items-center gap-4', recColor)}>
             <div className="text-2xl font-bold">{outputs.recommendation === 'Strong Buy' || outputs.recommendation === 'Buy with Negotiation' ? '✓' : outputs.recommendation === 'Marginal' ? '!' : '✗'}</div>
@@ -614,7 +874,7 @@ export default function UnderwritePage() {
           </div>
 
           {/* Key metrics */}
-          <div className="grid grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {[
               { label: 'Cash Flow', value: `${outputs.cashFlow >= 0 ? '+' : ''}${fmt.currency(outputs.cashFlow)}/mo`, color: outputs.cashFlow >= 0 ? 'text-emerald-400' : 'text-red-400' },
               { label: 'Cap Rate', value: fmt.pct(outputs.capRate), color: outputs.capRate >= 5 ? 'text-amber-400' : 'text-slate-300' },
@@ -629,7 +889,7 @@ export default function UnderwritePage() {
             ))}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* P&L */}
             <div className="glass rounded-xl p-5">
               <h3 className="text-sm font-semibold text-white mb-4">Monthly P&L</h3>
@@ -680,7 +940,7 @@ export default function UnderwritePage() {
           {/* Additional metrics */}
           <div className="glass rounded-xl p-5">
             <h3 className="text-sm font-semibold text-white mb-4">Additional Metrics</h3>
-            <div className="grid grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
               <div><p className="text-xs text-slate-500 mb-1">Cash to Close</p><p className="text-lg font-bold font-mono text-white">{fmt.currency(outputs.totalCashToClose)}</p><p className="text-xs text-slate-500">Down + est. closing</p></div>
               <div><p className="text-xs text-slate-500 mb-1">Break-Even Occupancy</p><p className={clsx('text-lg font-bold font-mono', outputs.breakEvenOccupancy <= 80 ? 'text-emerald-400' : 'text-amber-400')}>{fmt.pct(outputs.breakEvenOccupancy, 0)}</p><p className="text-xs text-slate-500">Min occupancy needed</p></div>
               <div><p className="text-xs text-slate-500 mb-1">Break-Even Rent</p><p className="text-lg font-bold font-mono text-white">{fmt.currency(outputs.breakEvenRent)}/mo</p><p className="text-xs text-slate-500">Min rent to cover all costs</p></div>
@@ -704,9 +964,18 @@ export default function UnderwritePage() {
           </div>
 
           {/* Strategy-specific panels */}
-          {strategy === 'BRRRR' && <BrrrrPanel inputs={fullInputs} />}
+          {strategy === 'BRRRR' && <BrrrrPanel inputs={fullInputs} rehabOverride={brrrrRehabOverride} />}
           {strategy === 'Fix & Flip' && <FlipPanel purchasePrice={inputs.purchasePrice} />}
           {strategy === 'Short-Term Rental' && <StrPanel inputs={fullInputs} />}
+          {strategy === 'Renovation' && (
+            <RenovationPanel
+              property={property}
+              onApplyToBrrrr={(cost) => {
+                setBrrrrRehabOverride(cost);
+                setStrategy('BRRRR');
+              }}
+            />
+          )}
 
           {/* Closing costs — always shown, collapsed by default */}
           <ClosingCostsSection purchasePrice={inputs.purchasePrice} downPaymentPct={inputs.downPaymentPct} />
