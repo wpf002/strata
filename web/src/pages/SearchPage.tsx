@@ -1,17 +1,18 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import { Search, Map, List, TrendingUp, SlidersHorizontal, Star, Bell, X, BookmarkCheck, Eye, Zap, ChevronDown } from 'lucide-react';
+import { Search, Map, List, TrendingUp, SlidersHorizontal, Star, Bell, X, BookmarkCheck, Eye, Zap, ChevronDown, Flame, GitCompareArrows } from 'lucide-react';
 import {
   getProperties, getSavedSearches, createSavedSearch, getWatchlists, createWatchlist,
   addToWatchlist, removeFromWatchlist, getSupportedMarkets, logActivity, removeActivity,
+  getDemandSignalsBatch,
 } from '../api/client';
 import type { Property, SearchFilters, SupportedMarket } from '../types';
-import type { SavedSearch } from '../api/client';
+import type { SavedSearch, DemandSignalSummary } from '../api/client';
 import { ScoreBadge, RiskBadge, RegimeBadge, FlagBadge, ConfidencePill, fmt } from '../components/UI';
 import { clsx } from 'clsx';
 import MapView from '../components/MapView';
 
-const SORT_OPTIONS = ['Deal Score', 'Price', 'Cap Rate', 'Cash Flow', 'Days on Market', 'Motivation Score'];
+const SORT_OPTIONS = ['Deal Score', 'Price', 'Cap Rate', 'Cash Flow', 'Days on Market', 'Motivation Score', 'Competition'];
 const STRATEGIES = ['LTR', 'STR', 'BRRRR', 'Flip', 'House Hack'];
 
 // Per-strategy fit score (0-100) derived from property attributes. Used to
@@ -177,6 +178,17 @@ export default function SearchPage() {
   // Map highlight
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
+  // Demand signals keyed by property id — drives both the High Demand badge
+  // and the Competition sort option.
+  const [demand, setDemand] = useState<Record<string, DemandSignalSummary>>({});
+
+  // Property comparison — up to 3 at a time
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [showCompare, setShowCompare] = useState(false);
+
+  // Active-saved-search tag (when a user applies a saved search)
+  const [activeSavedSearch, setActiveSavedSearch] = useState<SavedSearch | null>(null);
+
   useEffect(() => {
     setLoading(true);
     setFetchError(null);
@@ -186,14 +198,39 @@ export default function SearchPage() {
       .finally(() => setLoading(false));
   }, [filters]);
 
+  // Fetch demand signals for the visible set so we can decorate + sort.
+  useEffect(() => {
+    const ids = properties.map(p => p.id);
+    if (ids.length === 0) { setDemand({}); return; }
+    getDemandSignalsBatch(ids).then(setDemand).catch(() => setDemand({}));
+  }, [properties]);
+
   // Strategy pills filter client-side: only properties that meet the fit
   // threshold for at least one selected strategy survive. Empty selection = no
   // filter.
   const visibleProperties = useMemo(() => {
     const sel = filters.strategies ?? [];
-    if (sel.length === 0) return properties;
-    return properties.filter(p => sel.some(s => strategyFit(p, s) >= STRATEGY_FIT_THRESHOLD));
-  }, [properties, filters.strategies]);
+    let result = sel.length === 0
+      ? [...properties]
+      : properties.filter(p => sel.some(s => strategyFit(p, s) >= STRATEGY_FIT_THRESHOLD));
+
+    // "Competition" sorts ascending by demand_score so low-competition deals
+    // (what other investors haven't noticed yet) surface first.
+    if (filters.sortBy === 'Competition') {
+      result = [...result].sort((a, b) =>
+        (demand[a.id]?.demandScore ?? 0) - (demand[b.id]?.demandScore ?? 0),
+      );
+    }
+    return result;
+  }, [properties, filters.strategies, filters.sortBy, demand]);
+
+  const toggleCompare = (id: string) => {
+    setCompareIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= 3) return prev; // cap at 3
+      return [...prev, id];
+    });
+  };
 
   const loadWatchlistData = useCallback(async () => {
     try {
@@ -458,6 +495,36 @@ export default function SearchPage() {
         </div>
       )}
 
+      {/* Floating Compare bar — appears when 1+ properties selected */}
+      {compareIds.length > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 glass rounded-full border border-amber-500/40 bg-navy-900/90 backdrop-blur px-4 py-2.5 shadow-2xl">
+          <GitCompareArrows size={14} className="text-amber-400" />
+          <span className="text-sm text-white font-medium">
+            Compare <span className="text-amber-400 font-mono">({compareIds.length})</span>
+            {compareIds.length === 3 && <span className="text-[10px] text-slate-500 ml-1">max</span>}
+          </span>
+          <button
+            onClick={() => setShowCompare(true)}
+            disabled={compareIds.length < 2}
+            className="btn-primary text-xs py-1.5 px-3 disabled:opacity-50"
+          >
+            Open Comparison
+          </button>
+          <button onClick={() => setCompareIds([])} className="text-slate-500 hover:text-white transition-colors" aria-label="Clear comparison">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {showCompare && (
+        <ComparisonModal
+          properties={properties.filter(p => compareIds.includes(p.id))}
+          demand={demand}
+          onClose={() => setShowCompare(false)}
+          onUnderwrite={id => { setShowCompare(false); navigate(`/underwrite?property=${id}`); }}
+        />
+      )}
+
       <div className="flex flex-1 overflow-hidden">
         {/* Results / Map */}
         <div className={clsx('flex-1 overflow-hidden', view === 'map' ? 'flex' : 'overflow-y-auto')}>
@@ -479,6 +546,47 @@ export default function SearchPage() {
                   </button>
                 </div>
               </div>
+
+              {/* Your Collections — active saved search + quick-access pills */}
+              {(activeSavedSearch || savedSearches.length > 0) && (
+                <div className="mb-4 flex items-center gap-2 flex-wrap">
+                  {activeSavedSearch ? (
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold">
+                      <BookmarkCheck size={12} />
+                      <span>Viewing: {activeSavedSearch.name ?? 'Saved search'}</span>
+                      <button
+                        onClick={() => {
+                          setActiveSavedSearch(null);
+                          setFilters(f => ({
+                            query: 'Dallas, TX', minDealScore: 0, maxPrice: 600000,
+                            sortBy: f.sortBy, strategies: ['LTR'], offMarketOnly: false,
+                          }));
+                        }}
+                        className="text-amber-400/70 hover:text-amber-400"
+                        aria-label="Clear saved search"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="text-[10px] uppercase tracking-wider text-slate-600 font-semibold">Your Collections</span>
+                      {savedSearches.slice(0, 4).map(s => (
+                        <button
+                          key={s.id}
+                          onClick={() => {
+                            setActiveSavedSearch(s);
+                            setFilters(f => ({ ...f, ...(s.criteria as object) }));
+                          }}
+                          className="px-2.5 py-1 rounded-lg border border-white/10 bg-white/3 text-xs text-slate-300 hover:border-amber-500/30 hover:text-amber-400 transition-colors"
+                        >
+                          {s.name ?? 'Unnamed'}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
 
               {fetchError && (
                 <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-mono break-all">
@@ -504,9 +612,12 @@ export default function SearchPage() {
                       index={i}
                       isWatched={watchedIds.has(p.id)}
                       isHighlighted={highlightedId === p.id}
+                      isCompared={compareIds.includes(p.id)}
+                      demandScore={demand[p.id]?.demandScore}
                       onSelect={() => navigate(`/intelligence/${p.id}`)}
                       onUnderwrite={() => navigate(`/underwrite?property=${p.id}`)}
                       onWatch={() => toggleWatch(p.id)}
+                      onCompare={() => toggleCompare(p.id)}
                     />
                   ))}
                 </div>
@@ -544,9 +655,12 @@ export default function SearchPage() {
                           index={i}
                           isWatched={watchedIds.has(p.id)}
                           isHighlighted={highlightedId === p.id}
+                          isCompared={compareIds.includes(p.id)}
+                          demandScore={demand[p.id]?.demandScore}
                           onSelect={() => navigate(`/intelligence/${p.id}`)}
                           onUnderwrite={() => navigate(`/underwrite?property=${p.id}`)}
                           onWatch={() => toggleWatch(p.id)}
+                          onCompare={() => toggleCompare(p.id)}
                           compact
                         />
                       </div>
@@ -618,10 +732,13 @@ export default function SearchPage() {
   );
 }
 
-function PropertyCard({ property: p, index: i, isWatched, isHighlighted, onSelect, onUnderwrite, onWatch, compact }: {
+function PropertyCard({ property: p, index: i, isWatched, isHighlighted, isCompared, demandScore, onSelect, onUnderwrite, onWatch, onCompare, compact }: {
   property: Property; index: number; isWatched: boolean; isHighlighted: boolean;
-  onSelect: () => void; onUnderwrite: () => void; onWatch: () => void; compact?: boolean;
+  isCompared: boolean; demandScore?: number;
+  onSelect: () => void; onUnderwrite: () => void; onWatch: () => void; onCompare: () => void;
+  compact?: boolean;
 }) {
+  const isHighDemand = (demandScore ?? 0) >= 70;
   return (
     <div
       id={`prop-${p.id}`}
@@ -632,7 +749,12 @@ function PropertyCard({ property: p, index: i, isWatched, isHighlighted, onSelec
       onClick={onSelect}
     >
       {compact ? (
-        <div className="flex gap-3 p-3">
+        <div className="flex gap-3 p-3 relative">
+          {isHighDemand && (
+            <div className="absolute top-1 right-1 bg-red-500/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-1">
+              <Flame size={8} fill="currentColor" />
+            </div>
+          )}
           <img src={p.image} alt={p.address} className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2 mb-1">
@@ -648,6 +770,12 @@ function PropertyCard({ property: p, index: i, isWatched, isHighlighted, onSelec
               >
                 <Star size={9} fill={isWatched ? 'currentColor' : 'none'} />
               </button>
+              <button
+                className={clsx('btn-ghost text-[10px] py-1 px-2', isCompared && 'text-blue-400 border-blue-500/40')}
+                onClick={e => { e.stopPropagation(); onCompare(); }}
+              >
+                <GitCompareArrows size={9} />
+              </button>
             </div>
           </div>
         </div>
@@ -657,6 +785,11 @@ function PropertyCard({ property: p, index: i, isWatched, isHighlighted, onSelec
             <img src={p.image} alt={p.address} className="w-full h-40 sm:h-full object-cover" style={{ minHeight: 148 }} />
             <div className="absolute inset-0 bg-gradient-to-r from-transparent to-navy-900/40" />
             {i === 0 && <div className="absolute top-2 left-2 bg-amber-500 text-slate-900 text-[10px] font-bold px-2 py-0.5 rounded-full">TOP PICK</div>}
+            {isHighDemand && (
+              <div className="absolute top-2 right-2 bg-red-500/90 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 backdrop-blur">
+                <Flame size={9} fill="currentColor" /> HIGH DEMAND
+              </div>
+            )}
           </div>
 
           <div className="flex-1 px-4 sm:px-5 py-3.5 min-w-0">
@@ -728,6 +861,13 @@ function PropertyCard({ property: p, index: i, isWatched, isHighlighted, onSelec
             >
               <Star size={11} fill={isWatched ? 'currentColor' : 'none'} /> {isWatched ? 'Watching' : 'Watch'}
             </button>
+            <button
+              className={clsx('text-xs py-1.5 px-3 w-full justify-center rounded-lg border transition-all flex items-center gap-1', isCompared ? 'bg-blue-500/15 text-blue-400 border-blue-500/40' : 'btn-ghost')}
+              onClick={e => { e.stopPropagation(); onCompare(); }}
+              aria-label={isCompared ? 'Remove from comparison' : 'Add to comparison'}
+            >
+              <GitCompareArrows size={11} /> {isCompared ? 'Comparing' : 'Compare'}
+            </button>
           </div>
         </div>
       )}
@@ -741,6 +881,128 @@ function Metric({ label, value, positive, highlight }: { label: string; value: s
     <div>
       <p className="text-[10px] text-slate-500 mb-0.5">{label}</p>
       <p className={clsx('text-sm font-semibold font-mono', color)}>{value}</p>
+    </div>
+  );
+}
+
+// ── Comparison Modal ─────────────────────────────────────────────────────────
+
+function ComparisonModal({
+  properties,
+  demand,
+  onClose,
+  onUnderwrite,
+}: {
+  properties: Property[];
+  demand: Record<string, DemandSignalSummary>;
+  onClose: () => void;
+  onUnderwrite: (id: string) => void;
+}) {
+  if (properties.length === 0) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="glass rounded-2xl w-full max-w-6xl max-h-[92vh] flex flex-col border border-white/10" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">
+          <div>
+            <h3 className="text-base font-semibold text-white">Compare Properties</h3>
+            <p className="text-xs text-slate-500">Side-by-side view of {properties.length} {properties.length === 1 ? 'property' : 'properties'}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={16} /></button>
+        </div>
+
+        <div className="flex-1 overflow-auto p-4 md:p-5">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-white/10">
+                <th className="text-left text-xs text-slate-500 font-medium pb-3 pr-4">Metric</th>
+                {properties.map(p => (
+                  <th key={p.id} className="text-left pb-3 pr-4 min-w-[180px]">
+                    <img src={p.image} alt="" className="w-full h-24 rounded-lg object-cover mb-2" />
+                    <p className="text-sm font-semibold text-white truncate">{p.address}</p>
+                    <p className="text-xs text-slate-500 truncate">{p.city}, {p.state}</p>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="[&>tr]:border-b [&>tr]:border-white/5 [&_td]:py-2.5 [&_td]:pr-4 [&_td]:align-middle">
+              <tr>
+                <td className="text-xs text-slate-500">List Price</td>
+                {properties.map(p => <td key={p.id} className="font-mono text-white">{fmt.currency(p.price)}</td>)}
+              </tr>
+              <tr>
+                <td className="text-xs text-slate-500">Deal Score</td>
+                {properties.map(p => <td key={p.id}><ScoreBadge score={p.dealScore} /></td>)}
+              </tr>
+              <tr>
+                <td className="text-xs text-slate-500">Risk Score</td>
+                {properties.map(p => <td key={p.id}><RiskBadge score={p.riskScore} /></td>)}
+              </tr>
+              <tr>
+                <td className="text-xs text-slate-500">Cap Rate</td>
+                {properties.map(p => <td key={p.id} className="font-mono text-amber-400">{fmt.pct(p.capRate)}</td>)}
+              </tr>
+              <tr>
+                <td className="text-xs text-slate-500">Cash Flow</td>
+                {properties.map(p => (
+                  <td key={p.id} className={clsx('font-mono', (p.cashFlow ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                    {(p.cashFlow ?? 0) >= 0 ? '+' : ''}{fmt.currency(p.cashFlow)}/mo
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className="text-xs text-slate-500">Cash-on-Cash</td>
+                {properties.map(p => <td key={p.id} className="font-mono text-white">{fmt.pct(p.cashOnCash)}</td>)}
+              </tr>
+              <tr>
+                <td className="text-xs text-slate-500">Rent Estimate</td>
+                {properties.map(p => <td key={p.id} className="font-mono text-white">{fmt.currency(p.rentEstMid)}/mo</td>)}
+              </tr>
+              <tr>
+                <td className="text-xs text-slate-500">Neighborhood Score</td>
+                {properties.map(p => <td key={p.id} className="font-mono text-white">{p.neighborhoodScore}/100</td>)}
+              </tr>
+              <tr>
+                <td className="text-xs text-slate-500">Fair Value Range</td>
+                {properties.map(p => (
+                  <td key={p.id} className="font-mono text-white text-xs">
+                    {fmt.compact(p.fairValueLow)}–{fmt.compact(p.fairValueHigh)}
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className="text-xs text-slate-500">Price vs Fair Value</td>
+                {properties.map(p => (
+                  <td key={p.id} className={clsx('font-mono text-xs', p.priceVsFairValue <= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                    {p.priceVsFairValue <= 0 ? '▼' : '▲'} {Math.abs(p.priceVsFairValue).toFixed(1)}%
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className="text-xs text-slate-500">Days on Market</td>
+                {properties.map(p => <td key={p.id} className="font-mono text-white">{p.daysOnMarket}d</td>)}
+              </tr>
+              <tr>
+                <td className="text-xs text-slate-500">Competition</td>
+                {properties.map(p => {
+                  const score = demand[p.id]?.demandScore ?? 0;
+                  const color = score >= 70 ? 'text-red-400' : score >= 35 ? 'text-amber-400' : 'text-slate-400';
+                  return <td key={p.id} className={clsx('font-mono text-xs', color)}>{score}/100</td>;
+                })}
+              </tr>
+              <tr>
+                <td></td>
+                {properties.map(p => (
+                  <td key={p.id}>
+                    <button onClick={() => onUnderwrite(p.id)} className="btn-primary text-xs py-1.5 px-3 mt-2">
+                      Underwrite
+                    </button>
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

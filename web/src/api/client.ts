@@ -531,6 +531,58 @@ export async function viewPortal(token: string): Promise<PortalPublicView> {
   return get<PortalPublicView>(`/client-portals/view/${token}`);
 }
 
+// ── Demand Signal ────────────────────────────────────────────────────────────
+export interface DemandSignal {
+  propertyId: string;
+  strataViews30d: number;
+  strataSaves30d: number;
+  strataUnderwrites30d: number;
+  demandScore: number;
+  demandLabel: string;
+  priceDropCount: number;
+  daysOnMarket: number | null;
+  vsMarketDom: string;
+  note: string;
+}
+
+export interface DemandSignalSummary {
+  propertyId: string;
+  demandScore: number;
+  demandLabel: string;
+}
+
+export async function getDemandSignal(propertyId: string): Promise<DemandSignal> {
+  try {
+    return await get<DemandSignal>(`/properties/${propertyId}/demand`);
+  } catch {
+    // Never crash the intelligence page on a demand lookup failure.
+    return {
+      propertyId,
+      strataViews30d: 0,
+      strataSaves30d: 0,
+      strataUnderwrites30d: 0,
+      demandScore: 0,
+      demandLabel: 'Low — limited investor activity',
+      priceDropCount: 0,
+      daysOnMarket: null,
+      vsMarketDom: 'Baseline unavailable',
+      note: 'Demand signal unavailable',
+    };
+  }
+}
+
+export async function getDemandSignalsBatch(
+  propertyIds: string[],
+): Promise<Record<string, DemandSignalSummary>> {
+  if (propertyIds.length === 0) return {};
+  const params = new URLSearchParams({ ids: propertyIds.join(',') });
+  try {
+    return await get<Record<string, DemandSignalSummary>>(`/properties/demand-signals?${params}`);
+  } catch {
+    return {};
+  }
+}
+
 // ── Transactions ─────────────────────────────────────────────────────────────
 export interface TransactionMilestone {
   id: string;

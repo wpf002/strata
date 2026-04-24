@@ -492,6 +492,39 @@ Goal: make the web app usable in a phone browser before committing to a native R
 - Frontend: **81 vitest pass**, **0 TypeScript errors**
 - No new dependencies
 
+## Sprint 7 — Phase C (Demand Signal + Search UX)
+
+### Task 2 — Property Demand Signal
+
+- New `backend/services/demand_service.py` aggregates distinct users per activity type from `user_property_activity` over a 30-day window
+- `GET /properties/{id}/demand` — detail: distinct views/saves/underwrites, composite score 0–100, High/Medium/Low label, price_drop_count, DOM vs market average, plain-English `note`
+- `GET /properties/demand-signals?ids=p1,p2,p3` — batch summary (score + label only) for decorating search cards and powering Competition sort
+- Score calibration: weighted sum of distinct interactions (views ×1, copilot ×2, saves ×3, reported ×4, underwrites ×5) divided by a 25-interaction saturation point → capped 0–100. Intentionally aggressive so early-stage data lands Low/Medium until real traction shows
+- Market DOM baselines for the "vs market" label live in the service for Dallas/Phoenix/Nashville/Atlanta/Tampa/Austin
+- 5 new pytest covering zero-activity, high-activity labels, distinct-user dedup (3 views from the same user = 1), and bulk shape
+
+### Intelligence page — Market Interest card
+
+- New card on the Overview tab right column (above Rent Estimate)
+- Heat-gradient badge (red ≥70, amber ≥35, slate otherwise) with score and label
+- Stats: investors analyzing (30d), underwriting runs, price reductions, DOM vs market
+- Narrative `note` at the bottom — pulls from backend so copy stays consistent
+
+### SearchPage — UX improvements
+
+- **High Demand badge**: `🔥 HIGH DEMAND` ribbon on cards where demand_score ≥ 70 (subtle on compact cards)
+- **Competition sort**: new dropdown option that sorts ascending by demand_score so low-competition deals surface first — useful for investors looking for deals others haven't noticed
+- **Your Collections**: above the results:
+  - When a saved search is active, shows a closable "Viewing: {name}" chip
+  - When not, shows a pill row of up to 4 recent saved searches — clicking one applies its criteria
+- **Property comparison**: Compare toggle on every card (up to 3). A floating pill appears bottom-center with count + "Open Comparison" button + clear (X). The modal is a side-by-side table across: address, price, deal score, risk score, cap rate, cash flow, CoC, rent estimate, neighborhood score, fair value range, vs-fair-value, DOM, **Competition score**, and per-column Underwrite button
+
+### Test + build verification (Phase C)
+
+- Backend: **99 pytest pass** (94 → 99; +5 demand tests)
+- Frontend: **81 vitest pass**, **0 TypeScript errors**
+- No new dependencies
+
 ## Current Test Status (end of Sprint 6 + Mobile Addendum)
 
 - Frontend: **75 tests passing** (Vitest), **0 TypeScript errors** (`tsc --noEmit`), vite production build clean

@@ -5,9 +5,9 @@ import {
   ThumbsUp, ThumbsDown, Clock, Home, TrendingUp, Shield, AlertTriangle,
   Landmark, Bot, Droplets, GraduationCap, Target, Send, X, Check, Loader2, Zap, Hammer,
 } from 'lucide-react';
-import { getProperty, getValuation, getRisk, getWatchlists, createWatchlist, addToWatchlist, removeFromWatchlist, getRenovationEstimate, logActivity, removeActivity } from '../api/client';
+import { getProperty, getValuation, getRisk, getWatchlists, createWatchlist, addToWatchlist, removeFromWatchlist, getRenovationEstimate, logActivity, removeActivity, getDemandSignal } from '../api/client';
 import type { Property } from '../types';
-import type { ValuationData, RiskData, RenovationEstimate } from '../api/client';
+import type { ValuationData, RiskData, RenovationEstimate, DemandSignal } from '../api/client';
 import { ScoreBadge, RiskBadge, RegimeBadge, FlagBadge, ConfidencePill, MetricRow, StatCard, ProgressBar, fmt } from '../components/UI';
 import { clsx } from 'clsx';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
@@ -584,6 +584,67 @@ function OfferStrategyTab({ p }: { p: Property }) {
 
 // ── Existing tabs (unchanged) ────────────────────────────────────────────────
 
+function DemandCard({ propertyId }: { propertyId: string }) {
+  const [demand, setDemand] = useState<DemandSignal | null>(null);
+  useEffect(() => {
+    getDemandSignal(propertyId).then(setDemand).catch(() => setDemand(null));
+  }, [propertyId]);
+
+  if (!demand) return null;
+  const score = demand.demandScore;
+  const { color, dotColor, heat } = score >= 70
+    ? { color: 'text-red-400 border-red-500/30 bg-red-500/5', dotColor: 'bg-red-400', heat: 'High' }
+    : score >= 35
+      ? { color: 'text-amber-400 border-amber-500/30 bg-amber-500/5', dotColor: 'bg-amber-400', heat: 'Medium' }
+      : { color: 'text-slate-400 border-white/10 bg-white/3', dotColor: 'bg-slate-500', heat: 'Low' };
+
+  const totalInvestors = Math.max(
+    demand.strataViews30d,
+    demand.strataSaves30d + demand.strataUnderwrites30d,
+  );
+
+  return (
+    <div className="glass rounded-xl p-5">
+      <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+        <TrendingUp size={14} className="text-amber-500" /> Market Interest
+      </h3>
+      <div className={clsx('rounded-lg border p-3 mb-3', color)}>
+        <div className="flex items-center gap-2 mb-1">
+          <span className={clsx('w-2 h-2 rounded-full', dotColor)} />
+          <span className="text-xs font-semibold uppercase tracking-wider">{heat} Demand</span>
+          <span className="ml-auto text-xs font-mono">{score}/100</span>
+        </div>
+        <p className="text-xs opacity-90">{demand.demandLabel.split('—')[1]?.trim() ?? demand.demandLabel}</p>
+      </div>
+      <div className="space-y-1.5 text-xs">
+        <div className="flex justify-between">
+          <span className="text-slate-500">Investors analyzing (30d)</span>
+          <span className="font-mono text-white">{totalInvestors}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-slate-500">Underwriting runs</span>
+          <span className="font-mono text-white">{demand.strataUnderwrites30d}</span>
+        </div>
+        {demand.priceDropCount > 0 && (
+          <div className="flex justify-between">
+            <span className="text-slate-500">Price reductions</span>
+            <span className="font-mono text-amber-400">{demand.priceDropCount}</span>
+          </div>
+        )}
+        <div className="flex justify-between">
+          <span className="text-slate-500">DOM vs market</span>
+          <span className="font-mono text-white">{demand.vsMarketDom}</span>
+        </div>
+      </div>
+      {demand.note && (
+        <p className="text-[11px] text-slate-500 mt-3 pt-3 border-t border-white/5 leading-relaxed">
+          {demand.note}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function OverviewTab({ p }: { p: Property & { rentEstimate?: any; nearbySchools?: any[] } }) {
   const rentEst = (p as any).rentEstimate;
   const schools: any[] = (p as any).nearbySchools ?? [];
@@ -644,6 +705,7 @@ function OverviewTab({ p }: { p: Property & { rentEstimate?: any; nearbySchools?
         )}
       </div>
       <div className="space-y-4">
+        <DemandCard propertyId={p.id} />
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-semibold text-white mb-2">Rent Estimate</h3>
           {rentEst ? (

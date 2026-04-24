@@ -12,7 +12,7 @@ from ..database import get_db
 from ..models.property import Property
 from ..models.user import User
 from ..schemas.property import PropertyResponse, ValuationResponse, RiskResponse
-from ..services import property_service, valuation_service, risk_service, off_market_service, renovation_service
+from ..services import property_service, valuation_service, risk_service, off_market_service, renovation_service, demand_service
 from ..services.school_service import get_nearby_schools
 from ..services.rent_service import get_rent_estimate
 
@@ -45,6 +45,24 @@ async def search_properties(
         off_market_only=off_market_only,
         min_motivation_score=min_motivation_score,
     )
+
+
+@router.get("/demand-signals")
+async def get_demand_signals_batch(
+    ids: str = Query(..., description="Comma-separated property IDs"),
+    db: AsyncSession = Depends(get_db),
+    _: User | None = _OptUser,
+):
+    """Batch demand signal lookup — used by the search page to decorate cards
+    with a High-Demand badge and power the Competition sort. Returns a map
+    keyed by propertyId; missing ids get a zero score."""
+    property_ids = [pid.strip() for pid in ids.split(",") if pid.strip()]
+    signals = await demand_service.get_demand_signals_bulk(db, property_ids)
+    # Ensure every requested id is present in the response.
+    return {
+        pid: signals.get(pid, {"propertyId": pid, "demandScore": 0, "demandLabel": "Low — limited investor activity"})
+        for pid in property_ids
+    }
 
 
 @router.get("/{property_id}", response_model=PropertyResponse)
@@ -117,6 +135,17 @@ async def get_comps(
 ):
     valuation = await _get_valuation_for_id(db, property_id)
     return valuation.comps
+
+
+@router.get("/{property_id}/demand")
+async def get_property_demand(
+    property_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: User | None = _OptUser,
+):
+    """Demand signal for a single property — distinct-user counts, composite
+    score, and a plain-English insight note for the Intelligence page."""
+    return await demand_service.get_demand_signal(db, property_id)
 
 
 @router.get("/{property_id}/valuation", response_model=ValuationResponse)
