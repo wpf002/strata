@@ -1,8 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, X, Users, Copy, Check, ChevronRight, Eye, Star, Share2, BarChart2, FileText, Loader2 } from 'lucide-react';
+import { Plus, X, Users, Copy, Check, ChevronRight, Eye, Star, Share2, BarChart2, FileText, Loader2, Link as LinkIcon, ExternalLink, Archive, FolderKanban } from 'lucide-react';
 import { clsx } from 'clsx';
 import { fmt, ScoreBadge } from '../components/UI';
 import { supabase } from '../lib/supabase';
+import {
+  listClientPortals, createClientPortal, getClientPortal, archiveClientPortal,
+  addPortalProperty, removePortalProperty, logActivity,
+} from '../api/client';
+import type { ClientPortalSummary, ClientPortalDetail } from '../api/client';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -323,6 +328,13 @@ function CMAModal({
         includeSections: sections,
       });
       setReport(data);
+      // CMA generation is a high-intent activity for both Leads and the
+      // client's engagement feed.
+      logActivity(property.id, 'reported');
+      apiPost(`/clients/${client.id}/activity`, {
+        property_id: property.id,
+        activity_type: 'reported',
+      }).catch(() => {});
     } catch {
       setError('Failed to generate report. Please try again.');
     } finally {
@@ -559,6 +571,369 @@ function ActivityFeed({ clientId }: { clientId: string }) {
   );
 }
 
+// ── Create Portal Modal ──────────────────────────────────────────────────────
+
+function CreatePortalModal({
+  client,
+  matches,
+  onClose,
+  onCreated,
+}: {
+  client: Client;
+  matches: MatchProperty[];
+  onClose: () => void;
+  onCreated: (portal: ClientPortalSummary) => void;
+}) {
+  const [name, setName] = useState(`${client.name}'s Properties`);
+  const [selected, setSelected] = useState<Set<string>>(new Set(matches.slice(0, 3).map(m => m.id)));
+  const [filter, setFilter] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<ClientPortalSummary | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  const toggle = (id: string) =>
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+
+  const filtered = matches.filter(m =>
+    !filter.trim() || m.address.toLowerCase().includes(filter.toLowerCase()),
+  );
+
+  const submit = async () => {
+    if (!name.trim()) { setError('Portal name is required'); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      const portal = await createClientPortal(client.id, name.trim(), [...selected]);
+      setCreated(portal);
+      onCreated(portal);
+    } catch {
+      setError('Failed to create portal. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const copyLink = () => {
+    if (!created) return;
+    const url = `${window.location.origin}/portal/${created.magicLinkToken}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    });
+  };
+
+  const shareUrl = created ? `${window.location.origin}/portal/${created.magicLinkToken}` : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="glass rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col border border-white/10" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">
+          <div>
+            <h3 className="text-base font-semibold text-white">{created ? 'Portal Created' : 'Create Portal'}</h3>
+            <p className="text-xs text-slate-500">For {client.name}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={16} /></button>
+        </div>
+
+        {created && shareUrl ? (
+          <div className="p-5 space-y-4">
+            <div className="glass rounded-xl p-3 border border-emerald-500/30 bg-emerald-500/5">
+              <p className="text-sm font-semibold text-white">{created.name}</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Send this link to {client.name} — they don't need to create an account to view it.
+              </p>
+            </div>
+            <div className="glass rounded-lg p-3 border border-white/8">
+              <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Shareable link</p>
+              <p className="text-xs text-slate-300 font-mono break-all">{shareUrl}</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={copyLink} className="btn-primary flex-1 justify-center text-sm">
+                {linkCopied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy Link</>}
+              </button>
+              <button onClick={() => window.open(shareUrl, '_blank')} className="btn-ghost flex-1 justify-center text-sm">
+                <ExternalLink size={13} /> Open
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              {error && <p className="text-xs text-red-400 p-2 rounded bg-red-400/10 border border-red-400/20">{error}</p>}
+
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Portal Name</label>
+                <input className="strata-input w-full" value={name} onChange={e => setName(e.target.value)} />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs text-slate-400">
+                    Select Properties · <span className="text-amber-400 font-semibold">{selected.size}</span> selected
+                  </label>
+                </div>
+                <input
+                  className="strata-input w-full mb-2 text-sm"
+                  placeholder="Search properties…"
+                  value={filter}
+                  onChange={e => setFilter(e.target.value)}
+                />
+                <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                  {filtered.length === 0 ? (
+                    <p className="text-xs text-slate-500 text-center py-6">
+                      No matching properties. Broaden {client.name}'s filters to see more matches.
+                    </p>
+                  ) : filtered.map(p => {
+                    const isSelected = selected.has(p.id);
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => toggle(p.id)}
+                        className={clsx(
+                          'w-full flex items-center gap-3 text-left rounded-lg p-3 border transition-colors',
+                          isSelected ? 'border-amber-500/40 bg-amber-500/5' : 'border-white/8 hover:border-white/15',
+                        )}
+                      >
+                        <div className={clsx('w-4 h-4 rounded flex-shrink-0 flex items-center justify-center border', isSelected ? 'bg-amber-500 border-amber-500' : 'border-white/20')}>
+                          {isSelected && <Check size={11} className="text-slate-900" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-white truncate">{p.address}</p>
+                          <p className="text-xs text-slate-400 font-mono">{fmt.currency(p.price)}</p>
+                        </div>
+                        <ScoreBadge score={p.dealScore} />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 py-4 border-t border-white/5 flex gap-2 flex-shrink-0">
+              <button onClick={onClose} className="btn-ghost flex-1 justify-center text-sm">Cancel</button>
+              <button onClick={submit} disabled={saving || selected.size === 0} className="btn-primary flex-1 justify-center text-sm">
+                {saving ? <><Loader2 size={13} className="animate-spin" /> Creating…</> : `Create Portal (${selected.size})`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Portals Tab ───────────────────────────────────────────────────────────────
+
+function PortalsPanel({
+  client,
+  portals,
+  matches,
+  onChanged,
+}: {
+  client: Client;
+  portals: ClientPortalSummary[];
+  matches: MatchProperty[];
+  onChanged: () => void;
+}) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<Record<string, ClientPortalDetail>>({});
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showAddFor, setShowAddFor] = useState<string | null>(null);
+
+  const mine = portals.filter(p => p.clientId === client.id);
+
+  const ensureDetail = async (id: string) => {
+    if (detail[id]) return;
+    setLoadingId(id);
+    try {
+      const d = await getClientPortal(id);
+      setDetail(prev => ({ ...prev, [id]: d }));
+    } finally {
+      setLoadingId(null);
+    }
+  };
+
+  const toggleExpand = async (id: string) => {
+    if (expandedId === id) {
+      setExpandedId(null);
+    } else {
+      setExpandedId(id);
+      await ensureDetail(id);
+    }
+  };
+
+  const copyLink = (p: ClientPortalSummary) => {
+    const url = `${window.location.origin}/portal/${p.magicLinkToken}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedId(p.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  };
+
+  const handleRemove = async (portalId: string, propertyId: string) => {
+    const d = await removePortalProperty(portalId, propertyId);
+    setDetail(prev => ({ ...prev, [portalId]: d }));
+    onChanged();
+  };
+
+  const handleAdd = async (portalId: string, propertyId: string) => {
+    const d = await addPortalProperty(portalId, propertyId);
+    setDetail(prev => ({ ...prev, [portalId]: d }));
+    onChanged();
+  };
+
+  const handleArchive = async (portalId: string) => {
+    await archiveClientPortal(portalId);
+    onChanged();
+  };
+
+  if (mine.length === 0) {
+    return (
+      <div className="glass rounded-xl p-8 text-center">
+        <FolderKanban size={22} className="text-slate-500 mx-auto mb-2" />
+        <p className="text-sm text-slate-400">No portals yet for {client.name}.</p>
+        <p className="text-xs text-slate-600 mt-1">Create a portal to share a curated property collection they can view without logging in.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {mine.map(p => {
+        const isOpen = expandedId === p.id;
+        const d = detail[p.id];
+        const lastAt = p.lastClientActivityAt;
+        const daysSince = lastAt ? Math.floor((Date.now() - new Date(lastAt).getTime()) / 86_400_000) : null;
+        const addCandidates = matches.filter(m => !(d?.properties ?? []).some(x => x.id === m.id));
+
+        return (
+          <div key={p.id} className="glass rounded-xl border border-white/8 overflow-hidden">
+            <button onClick={() => toggleExpand(p.id)} className="w-full px-4 py-3.5 flex items-center gap-3 hover:bg-white/3 transition-colors text-left">
+              <FolderKanban size={14} className="text-amber-400 flex-shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-white truncate">{p.name}</p>
+                <p className="text-xs text-slate-500">
+                  {p.propertyCount} {p.propertyCount === 1 ? 'property' : 'properties'}
+                  {daysSince !== null && ` · Client active ${daysSince === 0 ? 'today' : `${daysSince}d ago`}`}
+                  {daysSince === null && ' · No activity yet'}
+                </p>
+              </div>
+              <ChevronRight size={14} className={clsx('text-slate-500 transition-transform', isOpen && 'rotate-90')} />
+            </button>
+
+            {isOpen && (
+              <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => window.open(`/portal/${p.magicLinkToken}`, '_blank')}
+                    className="btn-ghost text-xs py-1.5 px-3"
+                  >
+                    <ExternalLink size={11} /> View Live Portal
+                  </button>
+                  <button onClick={() => copyLink(p)} className="btn-ghost text-xs py-1.5 px-3">
+                    {copiedId === p.id ? <><Check size={11} /> Copied</> : <><LinkIcon size={11} /> Copy Link</>}
+                  </button>
+                  <button
+                    onClick={() => setShowAddFor(showAddFor === p.id ? null : p.id)}
+                    className="btn-ghost text-xs py-1.5 px-3"
+                  >
+                    <Plus size={11} /> Add Properties
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`Archive "${p.name}"? The shareable link will stop working.`)) handleArchive(p.id);
+                    }}
+                    className="btn-ghost text-xs py-1.5 px-3 ml-auto text-slate-500 hover:text-red-400"
+                  >
+                    <Archive size={11} /> Archive
+                  </button>
+                </div>
+
+                {showAddFor === p.id && (
+                  <div className="glass rounded-lg p-3 border border-white/8 space-y-1.5 max-h-48 overflow-y-auto">
+                    {addCandidates.length === 0 ? (
+                      <p className="text-xs text-slate-500 text-center py-2">All matching properties are already in this portal.</p>
+                    ) : addCandidates.map(m => (
+                      <button
+                        key={m.id}
+                        onClick={() => handleAdd(p.id, m.id)}
+                        className="w-full flex items-center gap-2 text-left p-2 rounded hover:bg-white/5 transition-colors"
+                      >
+                        <Plus size={11} className="text-amber-400 flex-shrink-0" />
+                        <span className="text-xs text-slate-300 truncate flex-1">{m.address}</span>
+                        <span className="text-xs text-slate-500 font-mono">{fmt.compact(m.price)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {loadingId === p.id && !d ? (
+                  <p className="text-xs text-slate-500">Loading portal…</p>
+                ) : d ? (
+                  <>
+                    {/* Properties list */}
+                    <div>
+                      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Properties</p>
+                      {d.properties.length === 0 ? (
+                        <p className="text-xs text-slate-500 p-2">No properties in this portal yet.</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {d.properties.map(prop => (
+                            <div key={prop.id} className="flex items-center gap-2 p-2 rounded border border-white/5">
+                              <span className="text-xs text-slate-300 truncate flex-1">{prop.address}</span>
+                              {prop.price !== null && <span className="text-xs text-slate-500 font-mono">{fmt.compact(prop.price)}</span>}
+                              <button onClick={() => handleRemove(p.id, prop.id)} className="text-slate-600 hover:text-red-400 transition-colors">
+                                <X size={11} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Activity log */}
+                    <div>
+                      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Client Activity</p>
+                      {d.activity.length === 0 ? (
+                        <p className="text-xs text-slate-500 p-2">No activity yet. Share the portal link to start tracking.</p>
+                      ) : (
+                        <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+                          {d.activity.slice(0, 10).map(a => (
+                            <div key={a.id} className="flex items-center gap-2 text-xs py-1">
+                              <span className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0',
+                                a.actionType === 'favorited' && 'bg-red-400',
+                                a.actionType === 'viewed' && 'bg-blue-400',
+                                a.actionType === 'unfavorited' && 'bg-slate-500',
+                                a.actionType === 'shared' && 'bg-emerald-400',
+                                a.actionType === 'commented' && 'bg-amber-400',
+                              )} />
+                              <span className="text-slate-300 capitalize">{a.actionType}</span>
+                              {a.propertyId && <span className="text-slate-500 truncate">· {a.propertyId}</span>}
+                              <span className="text-slate-600 ml-auto flex-shrink-0">
+                                {new Date(a.occurredAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function ClientsPage() {
@@ -569,9 +944,22 @@ export default function ClientsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  const [rightTab, setRightTab] = useState<'matches' | 'activity'>('matches');
+  const [rightTab, setRightTab] = useState<'matches' | 'activity' | 'portals'>('matches');
   const [clientActivity, setClientActivity] = useState<Record<string, PropertyActivity[]>>({});
   const [cmaProperty, setCmaProperty] = useState<MatchProperty | null>(null);
+  const [portals, setPortals] = useState<ClientPortalSummary[]>([]);
+  const [showCreatePortal, setShowCreatePortal] = useState(false);
+
+  const loadPortals = useCallback(async () => {
+    try {
+      const data = await listClientPortals();
+      setPortals(data);
+    } catch {
+      setPortals([]);
+    }
+  }, []);
+
+  useEffect(() => { loadPortals(); }, [loadPortals]);
 
   const load = useCallback(async () => {
     try {
@@ -715,6 +1103,14 @@ export default function ClientsPage() {
       {cmaProperty && active && (
         <CMAModal property={cmaProperty} client={active} onClose={() => setCmaProperty(null)} />
       )}
+      {showCreatePortal && active && (
+        <CreatePortalModal
+          client={active}
+          matches={matches}
+          onClose={() => setShowCreatePortal(false)}
+          onCreated={() => { loadPortals(); }}
+        />
+      )}
       {editingClient && (
         <ClientModal
           title="Edit Client"
@@ -800,8 +1196,8 @@ export default function ClientsPage() {
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {active ? (
             <>
-              <div className="flex items-start justify-between mb-4">
-                <div>
+              <div className="flex items-start justify-between mb-4 gap-2">
+                <div className="min-w-0 flex-1">
                   <h2 className="text-base font-semibold text-white">{active.name}</h2>
                   <p className="text-sm text-slate-500">
                     {active.strategy && <>{active.strategy} · </>}
@@ -809,18 +1205,23 @@ export default function ClientsPage() {
                     {active.targetMarkets.length > 0 && ` · ${active.targetMarkets.join(', ')}`}
                   </p>
                 </div>
-                <button className="btn-ghost text-sm" onClick={() => setEditingClient(active)}>Edit Client</button>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button className="btn-primary text-sm" onClick={() => setShowCreatePortal(true)}>
+                    <FolderKanban size={13} /> Create Portal
+                  </button>
+                  <button className="btn-ghost text-sm" onClick={() => setEditingClient(active)}>Edit</button>
+                </div>
               </div>
 
               {/* Tabs */}
               <div className="flex gap-1 mb-5 border-b border-white/5">
-                {(['matches', 'activity'] as const).map(tab => (
+                {(['matches', 'activity', 'portals'] as const).map(tab => (
                   <button
                     key={tab}
                     onClick={() => setRightTab(tab)}
                     className={clsx('pb-2.5 px-1 text-sm font-medium transition-all mr-4', rightTab === tab ? 'tab-active' : 'tab-inactive')}
                   >
-                    {tab === 'matches' ? 'Matching Properties' : 'Activity Feed'}
+                    {tab === 'matches' ? 'Matching Properties' : tab === 'activity' ? 'Activity Feed' : `Portals${portals.filter(p => p.clientId === active.id).length ? ` (${portals.filter(p => p.clientId === active.id).length})` : ''}`}
                   </button>
                 ))}
               </div>
@@ -877,6 +1278,15 @@ export default function ClientsPage() {
               )}
 
               {rightTab === 'activity' && <ActivityFeed clientId={active.id} />}
+
+              {rightTab === 'portals' && (
+                <PortalsPanel
+                  client={active}
+                  portals={portals}
+                  matches={matches}
+                  onChanged={loadPortals}
+                />
+              )}
             </>
           ) : (
             <div className="flex items-center justify-center h-full">

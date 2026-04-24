@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Bot, Send, Sparkles, ExternalLink, AlertCircle, FileText, Download, Copy, Check, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { Bot, Send, Sparkles, ExternalLink, AlertCircle, FileText, Download, Copy, Check, ChevronDown, ChevronUp, X, UserPlus, Loader2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { mockProperties } from '../data/mockData';
+import { logActivity, listClientPortals, createClientPortal, addPortalProperty } from '../api/client';
+import type { ClientPortalSummary } from '../api/client';
+import { supabase } from '../lib/supabase';
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? '';
 
@@ -38,6 +41,212 @@ const SUGGESTIONS = [
   'Which of my portfolio properties should I refinance?',
 ];
 
+const BASE_URL_API = import.meta.env.VITE_API_URL ?? '';
+
+// ── Send-to-Client Modal ─────────────────────────────────────────────────────
+// Connects Copilot → Client Portal: attach the current property to an existing
+// portal or spin up a new portal for a selected client.
+
+interface ClientOption { id: string; name: string; email: string | null }
+
+function SendToClientModal({
+  propertyId,
+  propertyAddress,
+  onClose,
+}: {
+  propertyId: string;
+  propertyAddress: string;
+  onClose: () => void;
+}) {
+  const [clients, setClients] = useState<ClientOption[]>([]);
+  const [portals, setPortals] = useState<ClientPortalSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [mode, setMode] = useState<'existing' | 'new'>('existing');
+  const [targetPortalId, setTargetPortalId] = useState<string>('');
+  const [selectedClientId, setSelectedClientId] = useState<string>('');
+  const [portalName, setPortalName] = useState('');
+  const [result, setResult] = useState<{ shareUrl: string; portalName: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token;
+        const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+        const [clientsRes, portalsList] = await Promise.all([
+          fetch(`${BASE_URL_API}/clients`, { headers }).then(r => r.ok ? r.json() : []),
+          listClientPortals().catch(() => []),
+        ]);
+        setClients(clientsRes);
+        setPortals(portalsList);
+        if (portalsList.length > 0) {
+          setTargetPortalId(portalsList[0].id);
+        } else {
+          setMode('new');
+        }
+        if (clientsRes.length > 0) setSelectedClientId(clientsRes[0].id);
+      } catch {
+        setError('Unable to load clients. Are you signed in?');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const submit = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      let portal: ClientPortalSummary;
+      if (mode === 'existing') {
+        if (!targetPortalId) throw new Error('Select a portal');
+        const detail = await addPortalProperty(targetPortalId, propertyId);
+        portal = detail;
+      } else {
+        if (!selectedClientId) throw new Error('Select a client');
+        const clientName = clients.find(c => c.id === selectedClientId)?.name ?? 'Client';
+        portal = await createClientPortal(
+          selectedClientId,
+          portalName.trim() || `${clientName}'s Properties`,
+          [propertyId],
+        );
+      }
+      setResult({
+        shareUrl: `${window.location.origin}/portal/${portal.magicLinkToken}`,
+        portalName: portal.name,
+      });
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to send to client');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const copyLink = () => {
+    if (!result) return;
+    navigator.clipboard.writeText(result.shareUrl).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="glass rounded-2xl w-full max-w-md border border-white/10" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-white">Send to Client</h3>
+            <p className="text-xs text-slate-500 truncate">{propertyAddress}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={16} /></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {loading ? (
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <Loader2 size={14} className="animate-spin" /> Loading clients…
+            </div>
+          ) : result ? (
+            <div className="space-y-3">
+              <div className="glass rounded-xl p-3 border border-emerald-500/30 bg-emerald-500/5">
+                <p className="text-sm font-semibold text-white">Added to {result.portalName}</p>
+                <p className="text-xs text-slate-400 mt-0.5">Your client can view this portal without logging in.</p>
+              </div>
+              <div className="glass rounded-lg p-3 border border-white/8">
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Shareable link</p>
+                <p className="text-xs text-slate-300 font-mono break-all">{result.shareUrl}</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={copyLink} className="btn-primary flex-1 justify-center text-sm">
+                  {linkCopied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy Link</>}
+                </button>
+                <button onClick={onClose} className="btn-ghost flex-1 justify-center text-sm">Done</button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {error && <p className="text-xs text-red-400 p-2 rounded bg-red-400/10 border border-red-400/20">{error}</p>}
+
+              {/* Mode toggle */}
+              <div className="flex gap-1 p-1 rounded-lg bg-white/5">
+                <button
+                  onClick={() => setMode('existing')}
+                  disabled={portals.length === 0}
+                  className={clsx('flex-1 text-xs py-1.5 rounded transition-colors',
+                    mode === 'existing' ? 'bg-amber-500/20 text-amber-400' : 'text-slate-400 hover:text-white',
+                    portals.length === 0 && 'opacity-40 cursor-not-allowed',
+                  )}
+                >
+                  Add to Existing Portal
+                </button>
+                <button
+                  onClick={() => setMode('new')}
+                  className={clsx('flex-1 text-xs py-1.5 rounded transition-colors',
+                    mode === 'new' ? 'bg-amber-500/20 text-amber-400' : 'text-slate-400 hover:text-white',
+                  )}
+                >
+                  Create New Portal
+                </button>
+              </div>
+
+              {mode === 'existing' ? (
+                <div>
+                  <label className="text-xs text-slate-400 mb-1 block">Portal</label>
+                  <select className="strata-input w-full" value={targetPortalId} onChange={e => setTargetPortalId(e.target.value)}>
+                    {portals.map(p => (
+                      <option key={p.id} value={p.id}>{p.name} {p.clientName ? `· ${p.clientName}` : ''} ({p.propertyCount})</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-xs text-slate-400 mb-1 block">Client</label>
+                    {clients.length === 0 ? (
+                      <p className="text-xs text-slate-500 p-2 rounded bg-white/5 border border-white/10">
+                        Add a client first on the Clients page.
+                      </p>
+                    ) : (
+                      <select className="strata-input w-full" value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)}>
+                        {clients.map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400 mb-1 block">Portal Name (optional)</label>
+                    <input
+                      className="strata-input w-full"
+                      placeholder="Defaults to ‘{Client}'s Properties’"
+                      value={portalName}
+                      onChange={e => setPortalName(e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button onClick={onClose} className="btn-ghost flex-1 justify-center text-sm">Cancel</button>
+                <button
+                  onClick={submit}
+                  disabled={saving || (mode === 'existing' && !targetPortalId) || (mode === 'new' && !selectedClientId)}
+                  className="btn-primary flex-1 justify-center text-sm"
+                >
+                  {saving ? <><Loader2 size={13} className="animate-spin" /> Sending…</> : 'Send'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MemoSection({ label, content }: { label: string; content: string }) {
   const [open, setOpen] = useState(true);
   return (
@@ -62,10 +271,12 @@ function MemoPanel({
   memo,
   propertyAddress,
   onClose,
+  onSendToClient,
 }: {
   memo: InvestmentMemo;
   propertyAddress: string;
   onClose: () => void;
+  onSendToClient: () => void;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -98,10 +309,17 @@ function MemoPanel({
             </button>
             <button
               onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-xs text-amber-400 hover:bg-amber-500/25 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-xs text-slate-400 hover:text-white hover:border-white/20 transition-colors"
             >
               <Download size={12} />
               PDF
+            </button>
+            <button
+              onClick={onSendToClient}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-xs text-amber-400 hover:bg-amber-500/25 transition-colors"
+            >
+              <UserPlus size={12} />
+              Send to Client
             </button>
             <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/8 transition-colors">
               <X size={15} />
@@ -140,11 +358,20 @@ export default function CopilotPage() {
   const [memoLoading, setMemoLoading] = useState(false);
   const [memoError, setMemoError] = useState<string | null>(null);
   const [showMemo, setShowMemo] = useState(false);
+  const [showSendModal, setShowSendModal] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isStreaming]);
+
+  // Loading a property context in Copilot counts as intent — log it once.
+  const copilotAskTracked = useRef(false);
+  useEffect(() => {
+    if (!propertyId || copilotAskTracked.current) return;
+    copilotAskTracked.current = true;
+    logActivity(propertyId, 'copilot_asked');
+  }, [propertyId]);
 
   const generateMemo = useCallback(async () => {
     if (!propertyId || memoLoading) return;
@@ -257,6 +484,15 @@ export default function CopilotPage() {
           memo={memo}
           propertyAddress={`${contextProperty.address}, ${contextProperty.city}`}
           onClose={() => setShowMemo(false)}
+          onSendToClient={() => { setShowMemo(false); setShowSendModal(true); }}
+        />
+      )}
+
+      {showSendModal && propertyId && (
+        <SendToClientModal
+          propertyId={propertyId}
+          propertyAddress={contextProperty ? `${contextProperty.address}, ${contextProperty.city}` : propertyId}
+          onClose={() => setShowSendModal(false)}
         />
       )}
 

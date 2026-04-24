@@ -17,7 +17,7 @@ from ..schemas.property import PropertyResponse
 
 router = APIRouter(prefix="/clients")
 
-ACTIVITY_TYPES = {"viewed", "saved", "shared", "underwritten", "copilot_asked"}
+ACTIVITY_TYPES = {"viewed", "saved", "shared", "underwritten", "copilot_asked", "reported"}
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -266,7 +266,7 @@ async def get_client_activity(
             grouped[pid]["lastActive"] = last_at.isoformat()
 
     # Add mock data (image) and compute engagement score
-    weights = {"viewed": 1, "saved": 3, "shared": 4, "underwritten": 5, "copilot_asked": 2}
+    weights = {"viewed": 1, "saved": 3, "shared": 4, "underwritten": 5, "copilot_asked": 2, "reported": 4}
     output = []
     for pid, data in grouped.items():
         mock = next((p for p in MOCK_PROPERTIES if p["id"] == pid), None)

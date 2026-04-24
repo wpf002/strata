@@ -3,7 +3,7 @@ import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { Search, Map, List, TrendingUp, SlidersHorizontal, Star, Bell, X, BookmarkCheck, Eye, Zap, ChevronDown } from 'lucide-react';
 import {
   getProperties, getSavedSearches, createSavedSearch, getWatchlists, createWatchlist,
-  addToWatchlist, removeFromWatchlist, getSupportedMarkets,
+  addToWatchlist, removeFromWatchlist, getSupportedMarkets, logActivity, removeActivity,
 } from '../api/client';
 import type { Property, SearchFilters, SupportedMarket } from '../types';
 import type { SavedSearch } from '../api/client';
@@ -243,9 +243,11 @@ export default function SearchPage() {
     if (isCurrentlyWatched) {
       setWatchedIds(prev => { const n = new Set(prev); n.delete(propertyId); return n; });
       setWatchlistCount(c => Math.max(0, c - 1));
+      removeActivity(propertyId, 'saved');
     } else {
       setWatchedIds(prev => new Set([...prev, propertyId]));
       setWatchlistCount(c => c + 1);
+      logActivity(propertyId, 'saved');
     }
 
     // Best-effort server sync — never revert local state on failure

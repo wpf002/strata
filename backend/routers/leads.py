@@ -38,6 +38,11 @@ class ActivityRequest(BaseModel):
     metadata: dict | None = None
 
 
+class ActivityDeleteRequest(BaseModel):
+    property_id: str
+    activity_type: str
+
+
 def _property_summary(property_id: str) -> dict:
     mock = next((p for p in MOCK_PROPERTIES if p["id"] == property_id), None)
     if mock:
@@ -101,6 +106,32 @@ async def record_activity(
 
     await db.flush()
     return {"ok": True, "count": row.count}
+
+
+@router.post("/activity/remove", status_code=204)
+async def remove_activity(
+    body: ActivityDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove a (user, property, type) engagement row — used when a user
+    unfavorites a property so the Leads list reflects real current intent."""
+    if body.activity_type not in ACTIVITY_TYPES:
+        raise HTTPException(status_code=422, detail=f"Invalid activity_type '{body.activity_type}'")
+
+    result = await db.execute(
+        select(UserPropertyActivity).where(
+            and_(
+                UserPropertyActivity.user_id == current_user.id,
+                UserPropertyActivity.property_id == body.property_id,
+                UserPropertyActivity.activity_type == body.activity_type,
+            )
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row:
+        await db.delete(row)
+        await db.flush()
 
 
 @router.get("/leads")

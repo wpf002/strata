@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Calculator, Star, Share2, Bell, ChevronRight, MapPin, Info,
   ThumbsUp, ThumbsDown, Clock, Home, TrendingUp, Shield, AlertTriangle,
   Landmark, Bot, Droplets, GraduationCap, Target, Send, X, Check, Loader2, Zap, Hammer,
 } from 'lucide-react';
-import { getProperty, getValuation, getRisk, getWatchlists, createWatchlist, addToWatchlist, removeFromWatchlist, getRenovationEstimate, logActivity } from '../api/client';
+import { getProperty, getValuation, getRisk, getWatchlists, createWatchlist, addToWatchlist, removeFromWatchlist, getRenovationEstimate, logActivity, removeActivity } from '../api/client';
 import type { Property } from '../types';
 import type { ValuationData, RiskData, RenovationEstimate } from '../api/client';
 import { ScoreBadge, RiskBadge, RegimeBadge, FlagBadge, ConfidencePill, MetricRow, StatCard, ProgressBar, fmt } from '../components/UI';
@@ -57,7 +57,6 @@ export default function IntelligencePage() {
   const [briefGenerating, setBriefGenerating] = useState(false);
   const [briefReportId, setBriefReportId] = useState<string | null>(null);
   const [briefLinkCopied, setBriefLinkCopied] = useState(false);
-  const activityTracked = useRef(false);
 
   const handleGenerateBrief = async () => {
     setBriefGenerating(true);
@@ -75,6 +74,8 @@ export default function IntelligencePage() {
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
       setBriefReportId(data.reportId);
+      // Brief generation counts as a reported action for Leads + Clients feeds.
+      logActivity(propId, 'reported');
     } catch {
       // stay open so user can retry
     } finally {
@@ -92,18 +93,8 @@ export default function IntelligencePage() {
 
   const propId = id || 'p1';
 
-  // Track view for client attribution
-  useEffect(() => {
-    if (!clientId || activityTracked.current) return;
-    activityTracked.current = true;
-    authHeaders().then(headers => {
-      fetch(`${BASE_URL}/clients/${clientId}/activity`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ property_id: propId, activity_type: 'viewed' }),
-      }).catch(() => {});
-    });
-  }, [clientId, propId]);
+  // Client attribution is handled centrally inside logActivity(): when the URL
+  // carries ?client={id}, activity is dual-written to client_activity.
 
   useEffect(() => {
     getWatchlists().then(wls => {
@@ -122,22 +113,14 @@ export default function IntelligencePage() {
       if (isWatched && watchlistId) {
         await removeFromWatchlist(watchlistId, propId);
         setIsWatched(false);
+        removeActivity(propId, 'saved');
       } else {
         const wls = await getWatchlists();
         const wl = wls.find(w => w.name === 'My Watchlist') ?? await createWatchlist('My Watchlist');
         setWatchlistId(wl.id);
         await addToWatchlist(wl.id, propId);
         setIsWatched(true);
-        // Track saved activity if client context present
-        if (clientId) {
-          authHeaders().then(headers => {
-            fetch(`${BASE_URL}/clients/${clientId}/activity`, {
-              method: 'POST',
-              headers,
-              body: JSON.stringify({ property_id: propId, activity_type: 'saved' }),
-            }).catch(() => {});
-          });
-        }
+        logActivity(propId, 'saved');
       }
     } catch {
       // not signed in — fail silently
@@ -179,17 +162,10 @@ export default function IntelligencePage() {
       setLoadingRisk(true);
       getRisk(propId).then(setRisk).catch(() => {}).finally(() => setLoadingRisk(false));
     }
-    // Track underwriting activity when user navigates there via Copilot
-    if (activeTab === 'Offer Strategy' && clientId) {
-      authHeaders().then(headers => {
-        fetch(`${BASE_URL}/clients/${clientId}/activity`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ property_id: propId, activity_type: 'underwritten' }),
-        }).catch(() => {});
-      });
+    if (activeTab === 'Offer Strategy') {
+      logActivity(propId, 'underwritten');
     }
-  }, [activeTab, property, propId, clientId]);
+  }, [activeTab, property, propId]);
 
   if (notFound) {
     return (

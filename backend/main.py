@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from .config import get_settings
 from .routers import properties, underwriting, portfolio, market, users, search
-from .routers import copilot, clients, reports, leads
+from .routers import copilot, clients, reports, leads, client_portals
 from .routers import markets as markets_router
 
 settings = get_settings()
@@ -61,6 +61,7 @@ app.include_router(market.router)
 app.include_router(search.router)
 app.include_router(copilot.router)
 app.include_router(clients.router)
+app.include_router(client_portals.router)
 app.include_router(reports.router)
 app.include_router(markets_router.router)
 app.include_router(leads.router)

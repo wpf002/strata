@@ -400,16 +400,154 @@ export interface Lead {
   engagementScore: number;
 }
 
+// Map leads activity → client activity type. Some types (e.g. 'reported') share
+// a name; others don't apply at the client level and are skipped.
+const CLIENT_ACTIVITY_MAP: Partial<Record<ActivityType, string>> = {
+  viewed: 'viewed',
+  underwritten: 'underwritten',
+  reported: 'reported',
+  saved: 'saved',
+  copilot_asked: 'copilot_asked',
+};
+
+function currentClientId(): string | null {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('client');
+}
+
 export async function logActivity(propertyId: string, activityType: ActivityType, metadata?: Record<string, unknown>): Promise<void> {
-  try {
-    await post('/activity', { property_id: propertyId, activity_type: activityType, metadata }, true);
-  } catch {
-    // Activity logging is best-effort — failures shouldn't interrupt the UX.
+  // Dual-write: always log user_property_activity; also attribute to a client
+  // when the URL says ?client={id}. Both calls are best-effort.
+  const body = { property_id: propertyId, activity_type: activityType, metadata };
+  try { await post('/activity', body, true); } catch { /* silent */ }
+
+  const clientId = currentClientId();
+  const clientType = CLIENT_ACTIVITY_MAP[activityType];
+  if (clientId && clientType) {
+    try {
+      await post(`/clients/${clientId}/activity`, {
+        property_id: propertyId,
+        activity_type: clientType,
+        metadata,
+      }, true);
+    } catch { /* silent */ }
   }
+}
+
+export async function removeActivity(propertyId: string, activityType: ActivityType): Promise<void> {
+  // Used when a user unfavorites a property — removes the user_property_activity
+  // row so Leads reflects current intent. Does NOT decrement client_activity
+  // (intentionally — agents still want to see that the client saved it once).
+  try {
+    await post('/activity/remove', { property_id: propertyId, activity_type: activityType }, true);
+  } catch { /* silent */ }
 }
 
 export async function listLeads(): Promise<Lead[]> {
   return get<Lead[]>('/leads', true);
+}
+
+// ── Client Portals ──────────────────────────────────────────────────────────
+export interface ClientPortalSummary {
+  id: string;
+  clientId: string;
+  clientName: string | null;
+  name: string;
+  magicLinkToken: string;
+  shareUrl: string;
+  propertyCount: number;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  lastClientActivityAt: string | null;
+}
+
+export interface PortalProperty {
+  id: string;
+  address: string;
+  city: string | null;
+  state: string | null;
+  price: number | null;
+  beds: number | null;
+  baths: number | null;
+  sqft: number | null;
+  image: string | null;
+  dealScore: number | null;
+  capRate: number | null;
+  cashFlow: number | null;
+  rentEstimate: number | null;
+  neighborhoodScore: number | null;
+  daysOnMarket: number | null;
+}
+
+export interface PortalActivityEntry {
+  id: string;
+  propertyId: string | null;
+  actionType: string;
+  clientName: string | null;
+  clientEmail: string | null;
+  occurredAt: string;
+}
+
+export interface ClientPortalDetail extends ClientPortalSummary {
+  properties: PortalProperty[];
+  activity: PortalActivityEntry[];
+}
+
+export interface PortalPublicView {
+  portalName: string;
+  agent: { name: string | null; email: string | null; phone: string | null; brokerage: string | null; photo: string | null };
+  properties: PortalProperty[];
+}
+
+export async function createClientPortal(clientId: string, name: string, propertyIds: string[]): Promise<ClientPortalSummary> {
+  return post<ClientPortalSummary>('/client-portals', { clientId, name, propertyIds }, true);
+}
+
+export async function listClientPortals(): Promise<ClientPortalSummary[]> {
+  return get<ClientPortalSummary[]>('/client-portals', true);
+}
+
+export async function getClientPortal(id: string): Promise<ClientPortalDetail> {
+  return get<ClientPortalDetail>(`/client-portals/${id}`, true);
+}
+
+export async function archiveClientPortal(id: string): Promise<void> {
+  return del(`/client-portals/${id}`, true);
+}
+
+export async function addPortalProperty(portalId: string, propertyId: string): Promise<ClientPortalDetail> {
+  return post<ClientPortalDetail>(`/client-portals/${portalId}/properties`, { propertyId }, true);
+}
+
+export async function removePortalProperty(portalId: string, propertyId: string): Promise<ClientPortalDetail> {
+  const headers = await authHeaders();
+  const res = await fetch(`${BASE_URL}/client-portals/${portalId}/properties/${propertyId}`, { method: 'DELETE', headers });
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}
+
+export async function viewPortal(token: string): Promise<PortalPublicView> {
+  return get<PortalPublicView>(`/client-portals/view/${token}`);
+}
+
+export async function recordPortalActivity(
+  token: string,
+  body: { propertyId?: string; actionType: string; clientName?: string; clientEmail?: string },
+): Promise<void> {
+  try {
+    const res = await fetch(`${BASE_URL}/client-portals/view/${token}/activity`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        propertyId: body.propertyId,
+        actionType: body.actionType,
+        clientName: body.clientName,
+        clientEmail: body.clientEmail,
+      }),
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+  } catch { /* silent — portal view should never break on logging failure */ }
 }
 
 function apiToHolding(h: any) {

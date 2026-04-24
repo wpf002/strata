@@ -401,6 +401,57 @@ Goal: make the web app usable in a phone browser before committing to a native R
 
 ---
 
+## Sprint 7 — April 2026 (Phase A: Client Portal + Activity Wiring)
+
+### Task 1 — Client Portal (Compass One equivalent)
+
+- **Migration 011** — `client_portals` (agent_user_id, client_id, name, magic_link_token UUID, property_ids JSONB, status, timestamps) + `client_portal_activity` (portal_id, property_id, action_type, client_name/email, metadata, occurred_at)
+- **Models + schemas** registered in `backend/models/__init__.py`; Pydantic camelCase responses via `CamelModel` base
+- **Router** `/backend/routers/client_portals.py`:
+  - `POST /client-portals` — create with auto-generated token; defaults name to `{client}'s Properties` if omitted
+  - `GET /client-portals` — list active portals, includes client name + last-activity timestamp
+  - `GET /client-portals/{id}` — detail with hydrated properties + activity log (last 100)
+  - `POST/DELETE /client-portals/{id}/properties[/{pid}]` — add or remove a property
+  - `DELETE /client-portals/{id}` — archive (soft delete; link stops working)
+  - `GET /client-portals/view/{token}` — **public, no auth** — returns portal with agent profile + hydrated properties
+  - `POST /client-portals/view/{token}/activity` — **public** — logs viewed/favorited/unfavorited/shared/commented; favorited/shared/viewed are dual-written into `client_activity` so they appear in the existing Clients-page feed
+- **Frontend public page** `/portal/:token` (outside auth gate):
+  - Agent header (photo/initial, name, brokerage, contact links)
+  - "Your Property Collection" grid — 2-col desktop, 1-col mobile
+  - Favorite button on each card with localStorage persistence per token; favorites float to the top
+  - "Get Full Analysis" CTAs deep-link to `/intelligence/:id` (hit the login page when the client isn't signed in)
+  - Silent POST beacons on view / favorite / unfavorite
+  - Accepts `?email=` / `?name=` for pre-attributed views
+- **ClientsPage**:
+  - New **Create Portal** button in the client detail header
+  - Modal with portal name + searchable checklist of matching properties (first 3 preselected)
+  - Success state shows shareable link + copy button — explicit copy "Send this link to {client name} — they don't need to create an account to view it."
+  - New **Portals tab** listing portals for the active client:
+    - Per portal: name, property count, client-last-active label
+    - Expandable: View Live Portal / Copy Link / Add Properties / Archive
+    - Inline add-candidate picker filters out properties already in the portal
+    - Properties list with inline remove + full activity log (last 10 events with colored action dots)
+
+### Task 6 — Remaining activity types wired
+
+- Centralised `logActivity` in `/web/src/api/client.ts` now dual-writes to `/clients/{clientId}/activity` whenever `window.location.search` contains `?client={id}`. Added `reported` to the client activity type set + engagement weighting. Removed the now-redundant hand-rolled `fetch` calls from IntelligencePage.
+- `copilot_asked` — CopilotPage fires `logActivity(propertyId, 'copilot_asked')` once per mount when `?property=` is present (ref-guarded against StrictMode double-fire).
+- `saved` / unsaved — SearchPage and IntelligencePage watchlist toggles fire `logActivity(..., 'saved')` on watch and new `removeActivity` on unwatch (backed by `POST /activity/remove`, which deletes the user_property_activity row so Leads reflects current intent; client_activity rows intentionally keep their count).
+- `reported` — fired from brief generation (IntelligencePage) and CMA generation (ClientsPage).
+
+### Task 8B partial — Copilot → Client Portal handoff
+
+- Memo panel gets a new **Send to Client** action that opens a modal:
+  - "Add to Existing Portal" — select any of the agent's portals, POSTs `addPortalProperty`
+  - "Create New Portal" — pick a client, optional custom name, one-click portal for this property
+  - Success state shows the shareable link with copy button
+
+### Test + build verification
+
+- Backend: **85 pytest pass** (72 existing + 13 new in `test_client_portals.py` covering auth guards, CRUD happy paths, public-view 404, favorite/unfavorite mirror logic, `/activity/remove` delete + no-op)
+- Frontend: **81 vitest pass**, **0 TypeScript errors** (`tsc --noEmit`)
+- No new npm or pip dependencies
+
 ## Current Test Status (end of Sprint 6 + Mobile Addendum)
 
 - Frontend: **75 tests passing** (Vitest), **0 TypeScript errors** (`tsc --noEmit`), vite production build clean

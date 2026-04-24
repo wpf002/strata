@@ -13,6 +13,7 @@ import SettingsPage from './pages/SettingsPage';
 import AlertsPage from './pages/AlertsPage';
 import ReportPage from './pages/ReportPage';
 import LeadsPage from './pages/LeadsPage';
+import PortalViewPage from './pages/PortalViewPage';
 import { useAuth } from './contexts/AuthContext';
 
 export default function App() {
@@ -26,15 +27,20 @@ export default function App() {
     );
   }
 
-  if (!session) {
+  // Public routes must render without auth — check the URL before gating.
+  const path = typeof window !== 'undefined' ? window.location.pathname : '';
+  const isPublic = path.startsWith('/portal/') || path.startsWith('/reports/');
+
+  if (!session && !isPublic) {
     return <LoginPage />;
   }
 
   return (
     <BrowserRouter>
       <Routes>
-        {/* Public report route — no sidebar, no auth */}
+        {/* Public routes — no sidebar, no auth */}
         <Route path="/reports/:id" element={<ReportPage />} />
+        <Route path="/portal/:token" element={<PortalViewPage />} />
 
         {/* App shell with sidebar */}
         <Route path="*" element={
