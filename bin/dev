@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Launch strata dev servers (API + web) fully detached so they survive
+# whatever subprocess management hangs them when started inline.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOG_DIR="$ROOT/.dev-logs"
+PID_DIR="$ROOT/.dev-logs"
+mkdir -p "$LOG_DIR"
+
+API_LOG="$LOG_DIR/api.log"
+WEB_LOG="$LOG_DIR/web.log"
+API_PID="$PID_DIR/api.pid"
+WEB_PID="$PID_DIR/web.pid"
+
+is_running() {
+  local pidfile="$1"
+  [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null
+}
+
+start() {
+  # Launch via Terminal.app so the processes get a real TTY and escape any
+  # subprocess-management quirks of the calling shell. Each command writes
+  # its PID and tees its output to a log file we can tail.
+  : > "$API_LOG"
+  : > "$WEB_LOG"
+  rm -f "$API_PID" "$WEB_PID"
+
+  api_cmd="cd '$ROOT' && echo \$\$ > '$API_PID' && exec '$ROOT/backend/.venv/bin/uvicorn' backend.main:app --port 8080 2>&1 | tee '$API_LOG'"
+  web_cmd="cd '$ROOT/web' && echo \$\$ > '$WEB_PID' && exec npm run dev 2>&1 | tee '$WEB_LOG'"
+
+  osascript <<EOF >/dev/null
+tell application "Terminal"
+  do script "$api_cmd"
+  do script "$web_cmd"
+end tell
+EOF
+
+  echo "Launched API + Web in Terminal.app windows."
+  echo "  API:  http://localhost:8080  (log: $API_LOG)"
+  echo "  Web:  http://localhost:5174  (log: $WEB_LOG)"
+}
+
+stop() {
+  for f in "$API_PID" "$WEB_PID"; do
+    [[ -f "$f" ]] || continue
+    pid=$(cat "$f")
+    if kill -0 "$pid" 2>/dev/null; then
+      pkill -TERM -P "$pid" 2>/dev/null || true
+      kill -TERM "$pid" 2>/dev/null || true
+      echo "Stopped pid $pid"
+    fi
+    rm -f "$f"
+  done
+}
+
+status() {
+  for label in API Web; do
+    if [[ "$label" == API ]]; then pidfile=$API_PID; port=8080; else pidfile=$WEB_PID; port=""; fi
+    if is_running "$pidfile"; then
+      echo "$label: running (pid $(cat "$pidfile"))${port:+ on :$port}"
+    else
+      echo "$label: stopped"
+    fi
+  done
+}
+
+logs() {
+  case "${1:-both}" in
+    api) tail -n 50 -f "$API_LOG" ;;
+    web) tail -n 50 -f "$WEB_LOG" ;;
+    *)   tail -n 25 "$API_LOG" "$WEB_LOG" ;;
+  esac
+}
+
+case "${1:-start}" in
+  start) start ;;
+  stop) stop ;;
+  restart) stop; sleep 1; start ;;
+  status) status ;;
+  logs) shift; logs "${1:-}" ;;
+  *) echo "usage: $0 {start|stop|restart|status|logs [api|web]}"; exit 1 ;;
+esac
