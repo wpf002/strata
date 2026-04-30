@@ -36,7 +36,35 @@ tell application "Terminal"
 end tell
 EOF
 
-  echo "Launched API + Web in Terminal.app windows."
+  echo "Launched API + Web in Terminal.app windows. Waiting for readiness..."
+
+  wait_http() {
+    # Poll an HTTP endpoint until it returns 2xx/3xx. Fails after timeout
+    # and tails the log so we don't silently mislead the caller.
+    local label="$1" url="$2" log="$3" deadline=$((SECONDS + 300))
+    while (( SECONDS < deadline )); do
+      local code
+      code=$(curl -sS -m 2 -o /dev/null -w "%{http_code}" "$url" 2>/dev/null || echo 000)
+      if [[ "$code" =~ ^[23] ]]; then
+        echo "  $label ready: $url ($code)"
+        return 0
+      fi
+      printf '.'
+      sleep 2
+    done
+    echo
+    echo "  $label FAILED to come up at $url within $((deadline - SECONDS + 300))s. Last log lines:" >&2
+    tail -n 30 "$log" >&2
+    return 1
+  }
+
+  local ok=0
+  wait_http "API" "http://127.0.0.1:8080/health" "$API_LOG" || ok=1
+  wait_http "Web" "http://127.0.0.1:5174/" "$WEB_LOG" || ok=1
+  if (( ok != 0 )); then
+    echo "One or more services did not become ready. See logs above." >&2
+    exit 1
+  fi
   echo "  API:  http://localhost:8080  (log: $API_LOG)"
   echo "  Web:  http://localhost:5174  (log: $WEB_LOG)"
 }

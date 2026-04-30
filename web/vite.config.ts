@@ -23,6 +23,7 @@ const bypassHtml = (req: { method?: string; headers: Record<string, string | str
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: '::',
     proxy: Object.fromEntries(
       API_PATHS.map(p => [p, {
         target: 'http://localhost:8080',
