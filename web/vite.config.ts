@@ -24,6 +24,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: '::',
+    port: 5174,
+    strictPort: true,
     proxy: Object.fromEntries(
       API_PATHS.map(p => [p, {
         target: 'http://localhost:8080',

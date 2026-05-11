@@ -18,25 +18,83 @@ is_running() {
   [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null
 }
 
+preflight() {
+  # Fail fast before launching anything if the Docker dependencies the app
+  # actually needs are down. Otherwise uvicorn comes up "green" but every
+  # request that touches Postgres / Redis / Meilisearch 500s and the UI
+  # white-screens — exactly the failure mode we want to prevent.
+  local required=(bt-postgres bt-redis bt-meilisearch)
+
+  if ! docker info >/dev/null 2>&1; then
+    if [[ -d "/Applications/Docker.app" ]]; then
+      echo "Docker Desktop isn't running — starting it..."
+      open -a Docker
+      local deadline=$((SECONDS + 90))
+      while (( SECONDS < deadline )); do
+        if docker info >/dev/null 2>&1; then echo "  Docker ready"; break; fi
+        sleep 2
+      done
+    fi
+    if ! docker info >/dev/null 2>&1; then
+      echo "Docker Desktop did not start within 90s. Start it manually and retry." >&2
+      echo "(Required containers: ${required[*]})" >&2
+      return 1
+    fi
+  fi
+
+  local stopped=() missing=()
+  for c in "${required[@]}"; do
+    local status
+    status=$(docker inspect -f '{{.State.Status}}' "$c" 2>/dev/null || echo "missing")
+    case "$status" in
+      running) : ;;
+      missing) missing+=("$c") ;;
+      *)       stopped+=("$c") ;;
+    esac
+  done
+
+  if (( ${#missing[@]} > 0 )); then
+    echo "Required container(s) don't exist: ${missing[*]}" >&2
+    echo "These are usually created by docker compose in a sibling project." >&2
+    return 1
+  fi
+
+  if (( ${#stopped[@]} > 0 )); then
+    echo "Starting stopped container(s): ${stopped[*]}"
+    docker start "${stopped[@]}" >/dev/null || { echo "  failed to start containers" >&2; return 1; }
+    # Wait for postgres to actually accept connections (5s is plenty for warm start).
+    local deadline=$((SECONDS + 15))
+    while (( SECONDS < deadline )); do
+      if docker exec bt-postgres pg_isready -U postgres >/dev/null 2>&1; then break; fi
+      sleep 1
+    done
+  fi
+}
+
 start() {
-  # Launch via Terminal.app so the processes get a real TTY and escape any
-  # subprocess-management quirks of the calling shell. Each command writes
-  # its PID and tees its output to a log file we can tail.
+  # Launch inline (no Terminal.app). When started from a Claude Code Bash tool,
+  # spawned children inherit a background QoS policy that throttles them to
+  # near-zero CPU — uvicorn never finishes importing. After spawning, we call
+  # `taskpolicy -B -t 0` on each PID to cancel the background policy. This is
+  # a no-op (just harmless errors) when started from a regular interactive
+  # shell where no throttling is in effect.
+  preflight || return 1
   : > "$API_LOG"
   : > "$WEB_LOG"
   rm -f "$API_PID" "$WEB_PID"
 
-  api_cmd="cd '$ROOT' && echo \$\$ > '$API_PID' && exec '$ROOT/backend/.venv/bin/uvicorn' backend.main:app --port 8080 2>&1 | tee '$API_LOG'"
-  web_cmd="cd '$ROOT/web' && echo \$\$ > '$WEB_PID' && exec npm run dev 2>&1 | tee '$WEB_LOG'"
+  ( cd "$ROOT" && nohup "$ROOT/backend/.venv/bin/uvicorn" backend.main:app \
+      --host 127.0.0.1 --port 8080 >> "$API_LOG" 2>&1 < /dev/null &
+    echo $! > "$API_PID" )
+  ( cd "$ROOT/web" && nohup npm run dev >> "$WEB_LOG" 2>&1 < /dev/null &
+    echo $! > "$WEB_PID" )
 
-  osascript <<EOF >/dev/null
-tell application "Terminal"
-  do script "$api_cmd"
-  do script "$web_cmd"
-end tell
-EOF
+  if command -v taskpolicy >/dev/null 2>&1; then
+    taskpolicy -B -t 0 -p "$(cat "$API_PID")" 2>/dev/null || true
+    taskpolicy -B -t 0 -p "$(cat "$WEB_PID")" 2>/dev/null || true
+  fi
 
-  echo "Launched API + Web in Terminal.app windows. Waiting for readiness..."
+  echo "Launched API (pid $(cat "$API_PID")) + Web (pid $(cat "$WEB_PID")) inline. Waiting for readiness..."
 
   wait_http() {
     # Poll an HTTP endpoint until it returns 2xx/3xx. Fails after timeout
@@ -59,8 +117,12 @@ EOF
   }
 
   local ok=0
-  wait_http "API" "http://127.0.0.1:8080/health" "$API_LOG" || ok=1
-  wait_http "Web" "http://127.0.0.1:5174/" "$WEB_LOG" || ok=1
+  # /health proves uvicorn is alive. /markets/supported proves the DB session
+  # works and at least one router is wired correctly — the difference between
+  # "started" and "actually usable".
+  wait_http "API"     "http://127.0.0.1:8080/health"            "$API_LOG" || ok=1
+  wait_http "API+DB"  "http://127.0.0.1:8080/markets/supported" "$API_LOG" || ok=1
+  wait_http "Web"     "http://127.0.0.1:5174/"                  "$WEB_LOG" || ok=1
   if (( ok != 0 )); then
     echo "One or more services did not become ready. See logs above." >&2
     exit 1
