@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, ArrowUpRight, RefreshCw, AlertCircle, DollarSign, Building2, TrendingUp, X, Check, Home, Trash2, Loader2, Wallet, Sparkles } from 'lucide-react';
 import { getPortfolio, createHolding, updateHolding, deleteHolding } from '../api/client';
 import type { Portfolio, PortfolioHolding } from '../types';
@@ -593,6 +594,7 @@ function EquityTimeline({ holding }: { holding: PortfolioHolding }) {
 }
 
 export default function PortfolioPage() {
+  const navigate = useNavigate();
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [activeId, setActiveId] = useState<string>('ph1');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -802,7 +804,7 @@ export default function PortfolioPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-5">
+          <div className="grid grid-cols-2 gap-5 items-start">
             <div className="glass rounded-xl p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-white">Property Performance</h3>
@@ -839,7 +841,7 @@ export default function PortfolioPage() {
                   <button className="w-full btn-ghost text-sm justify-start gap-3" onClick={() => { setShowAnalysis(false); setShowTax(false); setEditingHolding(active); }}>
                     <Building2 size={14} className="text-slate-400" /> Update Actuals
                   </button>
-                  <button className="w-full btn-ghost text-sm justify-start gap-3" onClick={() => {}}>
+                  <button className="w-full btn-ghost text-sm justify-start gap-3" onClick={() => navigate('/copilot')}>
                     <RefreshCw size={14} className="text-amber-400" /> Go to Copilot for Memo
                   </button>
                 </div>
