@@ -486,31 +486,37 @@ async def _load_or_mock_property(db: AsyncSession, property_id: str) -> Property
     except ValueError:
         pass
 
-    mock = next(
+    # Mock IDs (p1–p6) use their rich source dict; live IDs resolve from the
+    # RapidAPI search cache — same snake_case shape, so one construction path.
+    src = next(
         (p for p in property_service.MOCK_PROPERTIES if p["id"] == property_id), None
     )
-    if not mock:
+    if not src:
+        cached = property_service.find_in_rapidapi_cache(property_id)
+        if cached:
+            src = cached.model_dump()
+    if not src:
         raise HTTPException(status_code=404, detail="Property not found")
 
     return Property(
         id=_uuid.uuid4(),
-        address=mock["address"],
-        city=mock["city"],
-        state=mock["state"],
-        zip=mock["zip"],
-        lat=mock.get("lat"),
-        lon=mock.get("lng"),
-        beds=mock["beds"],
-        baths=mock["baths"],
-        sqft=mock["sqft"],
-        year_built=mock.get("year_built"),
-        property_type=mock["type"],
+        address=src["address"],
+        city=src["city"],
+        state=src["state"],
+        zip=src["zip"],
+        lat=src.get("lat"),
+        lon=src.get("lng"),
+        beds=src["beds"],
+        baths=src["baths"],
+        sqft=src["sqft"],
+        year_built=src.get("year_built"),
+        property_type=src["type"],
         data={
-            "list_price": mock["price"],
-            "status": mock["status"],
-            "days_on_market": mock["days_on_market"],
-            "fair_value_mid": (mock["fair_value_low"] + mock["fair_value_high"]) / 2,
-            **{k: mock.get(k) for k in (
+            "list_price": src["price"],
+            "status": src["status"],
+            "days_on_market": src["days_on_market"],
+            "fair_value_mid": (src["fair_value_low"] + src["fair_value_high"]) / 2,
+            **{k: src.get(k) for k in (
                 "deal_score", "risk_score", "cap_rate", "cash_on_cash",
                 "cash_flow", "fair_value_low", "fair_value_high",
                 "rent_est_low", "rent_est_mid", "rent_est_high",

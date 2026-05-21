@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { TrendingUp, TrendingDown, ChevronDown, ChevronUp, Search, Building } from 'lucide-react';
+import { TrendingUp, TrendingDown, ChevronDown, ChevronUp, Search, Building, Star } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { clsx } from 'clsx';
 import { fmt } from '../components/UI';
@@ -221,6 +221,7 @@ export default function MarketPulsePage() {
         <div className="flex items-center gap-2 flex-shrink-0">
           <label className="text-xs text-slate-500">View</label>
           <select
+            aria-label="Select market"
             value={selectedId}
             onChange={e => setSelectedId(e.target.value)}
             className="strata-input text-sm py-1.5 w-full sm:min-w-[200px]"
@@ -228,7 +229,7 @@ export default function MarketPulsePage() {
             <option value="all">All markets with data</option>
             {supported.map(m => (
               <option key={m.marketId} value={m.marketId}>
-                {m.city}, {m.stateCode}{m.isLaunchMarket ? ' ⭐' : ''}
+                {m.city}, {m.stateCode}{m.isLaunchMarket ? ' (launch)' : ''}
               </option>
             ))}
           </select>
@@ -246,7 +247,7 @@ export default function MarketPulsePage() {
           <div className="glass rounded-2xl p-10 text-center border border-white/5">
             <p className="text-sm text-slate-400 mb-1">No live data for this market yet.</p>
             <p className="text-xs text-slate-500">
-              Choose a launch market (⭐) for full analytics, or{' '}
+              Choose a launch market (<Star size={12} className="inline align-text-bottom" />) for full analytics, or{' '}
               <button onClick={() => setSelectedId('all')} className="text-amber-400 hover:underline">view all markets</button>.
             </p>
           </div>

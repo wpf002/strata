@@ -160,10 +160,7 @@ async def chat(
     system_prompt = _SYSTEM_BASE
 
     if body.property_id:
-        prop = next(
-            (p for p in property_service.MOCK_PROPERTIES if p["id"] == body.property_id),
-            None,
-        )
+        prop = await property_service.resolve_property_dict(db, body.property_id)
         if prop:
             flags = ", ".join(f["label"] for f in prop.get("risk_flags", [])) or "None"
             system_prompt = (
@@ -216,15 +213,12 @@ async def chat(
 
 
 @router.post("/generate-memo")
-async def generate_memo(body: MemoRequest):
+async def generate_memo(body: MemoRequest, db=Depends(get_db)):
     settings = get_settings()
     if not settings.anthropic_api_key:
         raise HTTPException(status_code=503, detail="Anthropic API key not configured")
 
-    prop = next(
-        (p for p in property_service.MOCK_PROPERTIES if p["id"] == body.property_id),
-        None,
-    )
+    prop = await property_service.resolve_property_dict(db, body.property_id)
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
 

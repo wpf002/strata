@@ -45,7 +45,7 @@ _RAPID_DIR = Path(__file__).parent.parent / ".rapidapi"
 _RAPID_DIR.mkdir(exist_ok=True)
 _RAPID_CACHE_FILE = _RAPID_DIR / "search_cache.json"
 _RAPID_USAGE_FILE = _RAPID_DIR / "usage.json"
-_RAPID_CACHE_TTL = 60 * 60          # 60 min — listings change slowly, this dramatically cuts burn from filter tweaking
+_RAPID_CACHE_TTL = 6 * 60 * 60      # 6h — listings change slowly; long TTL keeps repeated demo/prep searches of the same market off the quota meter
 RAPIDAPI_MONTHLY_LIMIT = 450         # free tier is typically 500/mo — leave headroom
 
 
@@ -331,6 +331,34 @@ def _apply_off_market_filter(
     return enriched
 
 
+def find_in_rapidapi_cache(property_id: str) -> PropertyResponse | None:
+    """Resolve a listing the user recently saw in search from the on-disk
+    RapidAPI cache. Lets detail / valuation / Copilot / Memo work on live
+    listings without the (removed) detail endpoint or re-billing the API."""
+    try:
+        cache = _rapid_load(_RAPID_CACHE_FILE)
+        for entry in cache.values():
+            for p in entry.get("data", []):
+                if str(p.get("id")) == str(property_id):
+                    resp = PropertyResponse.model_validate(p)
+                    resp.image = _upgrade_photo_url(resp.image)
+                    return resp
+    except Exception:
+        pass
+    return None
+
+
+async def resolve_property_dict(db: AsyncSession, property_id: str) -> dict | None:
+    """Single resolver for consumers that want a plain dict (Copilot, Memo).
+    Mock IDs return their rich source dict unchanged; live IDs resolve through
+    get_property_by_id (DB / cache / detail) and are dumped to snake_case."""
+    mock = next((p for p in MOCK_PROPERTIES if p["id"] == property_id), None)
+    if mock:
+        return mock
+    resp = await get_property_by_id(db, property_id)
+    return resp.model_dump() if resp else None
+
+
 async def get_property_by_id(
     db: AsyncSession, property_id: str
 ) -> PropertyResponse | None:
@@ -365,12 +393,17 @@ async def get_property_by_id(
     if match:
         return _mock_to_response(match)
 
-    # 4. Fresh RapidAPI detail call (only if the above didn't hit)
-    if settings.rapidapi_key:
-        live = await _fetch_rapidapi_property(property_id, settings.rapidapi_key, db)
-        if live:
-            return live
+    # 3.5 RapidAPI search cache — the listing the user just saw in the feed.
+    # Resolves clicks without re-billing RapidAPI or hitting the (removed)
+    # /properties/v3/detail endpoint.
+    cached = find_in_rapidapi_cache(property_id)
+    if cached:
+        return cached
 
+    # 4. (Disabled) Fresh RapidAPI detail call. The realty-in-us /v3/detail
+    # endpoint was removed upstream, so this call always 404s — and it still
+    # bills a quota unit. Listings the user actually navigates to are resolved
+    # from the search cache above, so skipping this saves quota with no UX loss.
     return None
 
 
@@ -752,6 +785,11 @@ async def _search_rapidapi(
             properties.append(prop)
         except Exception:
             continue
+
+    # Dedupe by id — RapidAPI occasionally returns the same listing twice, which
+    # would otherwise produce duplicate React keys and detail-link collisions.
+    seen: set[str] = set()
+    properties = [p for p in properties if not (p.id in seen or seen.add(p.id))]
 
     # Cache the UNFILTERED set (all results from upstream). Then filter+sort.
     try:

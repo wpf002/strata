@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Search, Map, List, TrendingUp, SlidersHorizontal, Star, Bell, X, BookmarkCheck, Eye, Zap, ChevronDown, Flame, GitCompareArrows } from 'lucide-react';
+import { Search, Map, List, TrendingUp, SlidersHorizontal, Star, Bell, X, BookmarkCheck, Eye, Zap, ChevronDown, ChevronUp, Flame, GitCompareArrows } from 'lucide-react';
 import {
   getProperties, getSavedSearches, createSavedSearch, getWatchlists, createWatchlist,
   addToWatchlist, removeFromWatchlist, getSupportedMarkets, logActivity, removeActivity,
@@ -338,7 +338,7 @@ export default function SearchPage() {
           <div className="glass rounded-2xl p-6 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-semibold text-white">Save Search</h3>
-              <button onClick={() => setShowSaveModal(false)} className="text-slate-500 hover:text-white transition-colors"><X size={16} /></button>
+              <button onClick={() => setShowSaveModal(false)} aria-label="Close" className="text-slate-500 hover:text-white transition-colors"><X size={16} /></button>
             </div>
             <p className="text-sm text-slate-400 mb-4">Give this search a name to find it later and set up alerts.</p>
             <input
@@ -449,6 +449,7 @@ export default function SearchPage() {
 
         <div className="flex items-center gap-2 ml-auto flex-shrink-0 order-2 md:order-3">
           <select
+            aria-label="Sort properties"
             className="strata-input text-sm max-w-[120px] sm:max-w-[140px]"
             value={filters.sortBy}
             onChange={e => setFilters(f => ({ ...f, sortBy: e.target.value }))}
@@ -479,11 +480,11 @@ export default function SearchPage() {
         <div className="px-4 md:px-6 py-4 border-b border-white/5 glass flex flex-wrap items-start gap-4 md:gap-8 flex-shrink-0">
           <div className="flex flex-col gap-1 min-w-[160px] flex-1 md:flex-none md:min-w-[200px]">
             <label className="text-xs text-slate-500 font-medium">Min Deal Score: <span className="text-amber-400 font-mono">{filters.minDealScore}</span></label>
-            <input type="range" min={0} max={100} value={filters.minDealScore} onChange={e => setFilters(f => ({ ...f, minDealScore: +e.target.value }))} />
+            <input type="range" aria-label="Minimum deal score" min={0} max={100} value={filters.minDealScore} onChange={e => setFilters(f => ({ ...f, minDealScore: +e.target.value }))} />
           </div>
           <div className="flex flex-col gap-1 min-w-[160px] flex-1 md:flex-none md:min-w-[200px]">
             <label className="text-xs text-slate-500 font-medium">Max Price: <span className="text-amber-400 font-mono">{fmt.currency(filters.maxPrice || 600000)}</span></label>
-            <input type="range" min={100000} max={1000000} step={10000} value={filters.maxPrice} onChange={e => setFilters(f => ({ ...f, maxPrice: +e.target.value }))} />
+            <input type="range" aria-label="Maximum price" min={100000} max={1000000} step={10000} value={filters.maxPrice} onChange={e => setFilters(f => ({ ...f, maxPrice: +e.target.value }))} />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs text-slate-500 font-medium">Property Type</label>
@@ -495,7 +496,7 @@ export default function SearchPage() {
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs text-slate-500 font-medium">Min Cap Rate</label>
-            <select className="strata-input w-28 text-sm py-1.5">
+            <select aria-label="Minimum cap rate" className="strata-input w-28 text-sm py-1.5">
               <option>Any</option><option>4%+</option><option>5%+</option><option>6%+</option><option>7%+</option>
             </select>
           </div>
@@ -789,12 +790,14 @@ function PropertyCard({ property: p, index: i, isWatched, isHighlighted, isCompa
             <div className="flex gap-1.5">
               <button className="btn-primary text-[10px] py-1 px-2" onClick={e => { e.stopPropagation(); onUnderwrite(); }}>Underwrite</button>
               <button
+                aria-label={isWatched ? 'Remove from watchlist' : 'Add to watchlist'}
                 className={clsx('btn-ghost text-[10px] py-1 px-2', isWatched && 'text-amber-400 border-amber-500/40')}
                 onClick={e => { e.stopPropagation(); onWatch(); }}
               >
                 <Star size={9} fill={isWatched ? 'currentColor' : 'none'} />
               </button>
               <button
+                aria-label="Compare property"
                 className={clsx('btn-ghost text-[10px] py-1 px-2', isCompared && 'text-blue-400 border-blue-500/40')}
                 onClick={e => { e.stopPropagation(); onCompare(); }}
               >
@@ -806,7 +809,7 @@ function PropertyCard({ property: p, index: i, isWatched, isHighlighted, isCompa
       ) : (
         <div className="flex flex-col sm:flex-row">
           <div className="w-full sm:w-44 flex-shrink-0 relative">
-            <img src={p.image} alt={p.address} className="w-full h-40 sm:h-full object-cover" style={{ minHeight: 148 }} />
+            <img src={p.image} alt={p.address} className="w-full h-40 sm:h-full object-cover min-h-[148px]" />
             <div className="absolute inset-0 bg-gradient-to-r from-transparent to-navy-900/40" />
             {i === 0 && <div className="absolute top-2 left-2 bg-amber-500 text-slate-900 text-[10px] font-bold px-2 py-0.5 rounded-full">TOP PICK</div>}
             {isHighDemand && (
@@ -856,7 +859,7 @@ function PropertyCard({ property: p, index: i, isWatched, isHighlighted, isCompa
                 <p className="text-[10px] text-slate-500">Fair Value</p>
                 <p className="text-xs font-mono text-white truncate">{fmt.compact(p.fairValueLow)}–{fmt.compact(p.fairValueHigh)}</p>
                 <p className={clsx('text-[10px] font-semibold', p.priceVsFairValue <= 0 ? 'text-emerald-400' : 'text-red-400')}>
-                  {p.priceVsFairValue <= 0 ? '▼' : '▲'} {Math.abs(p.priceVsFairValue).toFixed(1)}% vs est.
+                  {p.priceVsFairValue <= 0 ? <ChevronDown size={12} className="inline" /> : <ChevronUp size={12} className="inline" />} {Math.abs(p.priceVsFairValue).toFixed(1)}% vs est.
                 </p>
               </div>
               <button className="btn-primary text-xs py-2 px-3 flex-shrink-0" onClick={e => { e.stopPropagation(); onUnderwrite(); }}>Underwrite</button>
@@ -875,7 +878,7 @@ function PropertyCard({ property: p, index: i, isWatched, isHighlighted, isCompa
               <p className="text-[10px] text-slate-500 mb-0.5">Fair Value</p>
               <p className="text-xs font-mono text-white">{fmt.compact(p.fairValueLow)}–{fmt.compact(p.fairValueHigh)}</p>
               <p className={clsx('text-xs font-semibold mt-0.5', p.priceVsFairValue <= 0 ? 'text-emerald-400' : 'text-red-400')}>
-                {p.priceVsFairValue <= 0 ? '▼' : '▲'} {Math.abs(p.priceVsFairValue).toFixed(1)}% vs est.
+                {p.priceVsFairValue <= 0 ? <ChevronDown size={12} className="inline" /> : <ChevronUp size={12} className="inline" />} {Math.abs(p.priceVsFairValue).toFixed(1)}% vs est.
               </p>
             </div>
             <button className="btn-primary text-xs py-2 px-3 w-full justify-center" onClick={e => { e.stopPropagation(); onUnderwrite(); }}>Underwrite</button>
@@ -931,7 +934,7 @@ function ComparisonModal({
             <h3 className="text-base font-semibold text-white">Compare Properties</h3>
             <p className="text-xs text-slate-500">Side-by-side view of {properties.length} {properties.length === 1 ? 'property' : 'properties'}</p>
           </div>
-          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Close" className="text-slate-500 hover:text-white transition-colors"><X size={16} /></button>
         </div>
 
         <div className="flex-1 overflow-auto p-4 md:p-5">
@@ -997,7 +1000,7 @@ function ComparisonModal({
                 <td className="text-xs text-slate-500">Price vs Fair Value</td>
                 {properties.map(p => (
                   <td key={p.id} className={clsx('font-mono text-xs', p.priceVsFairValue <= 0 ? 'text-emerald-400' : 'text-red-400')}>
-                    {p.priceVsFairValue <= 0 ? '▼' : '▲'} {Math.abs(p.priceVsFairValue).toFixed(1)}%
+                    {p.priceVsFairValue <= 0 ? <ChevronDown size={12} className="inline" /> : <ChevronUp size={12} className="inline" />} {Math.abs(p.priceVsFairValue).toFixed(1)}%
                   </td>
                 ))}
               </tr>

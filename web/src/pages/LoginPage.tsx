@@ -37,7 +37,7 @@ export default function LoginPage() {
             </div>
             <span className="text-xl font-bold text-white tracking-tight">STRATA</span>
           </div>
-          <p className="text-slate-400 text-sm">Real estate intelligence platform</p>
+          <p className="text-slate-400 text-sm">Real Estate Intelligence Platform</p>
         </div>
 
         <div className="glass rounded-2xl p-7 border border-white/10">

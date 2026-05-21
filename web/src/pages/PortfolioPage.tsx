@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, ArrowUpRight, RefreshCw, AlertCircle, DollarSign, Building2, TrendingUp, X, Home, Trash2, Loader2, Wallet, Sparkles } from 'lucide-react';
+import { Plus, ArrowUpRight, RefreshCw, AlertCircle, DollarSign, Building2, TrendingUp, X, Check, Home, Trash2, Loader2, Wallet, Sparkles } from 'lucide-react';
 import { getPortfolio, createHolding, updateHolding, deleteHolding } from '../api/client';
 import type { Portfolio, PortfolioHolding } from '../types';
 import { StatCard, MetricRow, fmt } from '../components/UI';
@@ -88,7 +88,7 @@ function AnalysisPanel({ holdingId, onClose }: { holdingId: string; onClose: () 
     <div className="glass rounded-2xl border border-white/10 p-5">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-white">Hold / Sell / Refi Analysis</h3>
-        <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={14} /></button>
+        <button onClick={onClose} aria-label="Close" className="text-slate-500 hover:text-white transition-colors"><X size={14} /></button>
       </div>
 
       {loading && <div className="flex items-center gap-2 text-slate-400 text-sm"><Loader2 size={14} className="animate-spin" /> Analyzing…</div>}
@@ -172,7 +172,7 @@ function TaxPanel({ holdingId, onClose }: { holdingId: string; onClose: () => vo
     <div className="glass rounded-2xl border border-white/10 p-5">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-white">Tax &amp; Exit Analysis</h3>
-        <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={14} /></button>
+        <button onClick={onClose} aria-label="Close" className="text-slate-500 hover:text-white transition-colors"><X size={14} /></button>
       </div>
 
       {loading && <div className="flex items-center gap-2 text-slate-400 text-sm"><Loader2 size={14} className="animate-spin" /> Calculating…</div>}
@@ -222,8 +222,8 @@ function TaxPanel({ holdingId, onClose }: { holdingId: string; onClose: () => vo
           <div>
             <p className="text-xs font-bold text-amber-400 uppercase tracking-widest mb-2">1031 Exchange</p>
             <div className="flex items-center gap-2 mb-2">
-              <span className={clsx('text-xs font-semibold px-2.5 py-1 rounded border', tax.qualifiesFor1031 ? 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30' : 'text-slate-400 bg-white/5 border-white/10')}>
-                {tax.qualifiesFor1031 ? '✓ Eligible' : '✗ Not Eligible'}
+              <span className={clsx('inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded border', tax.qualifiesFor1031 ? 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30' : 'text-slate-400 bg-white/5 border-white/10')}>
+                {tax.qualifiesFor1031 ? <><Check size={13} /> Eligible</> : <><X size={13} /> Not Eligible</>}
               </span>
             </div>
             {tax.qualifiesFor1031 && (
@@ -292,7 +292,7 @@ function HoldingModal({
       <div className="glass rounded-2xl p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-base font-semibold text-white">{title}</h3>
-          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Close" className="text-slate-500 hover:text-white transition-colors"><X size={16} /></button>
         </div>
 
         {error && <p className="text-xs text-red-400 mb-3 p-2 rounded bg-red-400/10 border border-red-400/20">{error}</p>}
@@ -309,7 +309,7 @@ function HoldingModal({
             </div>
             <div>
               <label className="text-xs text-slate-400 mb-1 block">Purchase Date</label>
-              <input className="strata-input w-full" type="date" value={form.purchaseDate} onChange={set('purchaseDate')} />
+              <input className="strata-input w-full" type="date" aria-label="Purchase date" value={form.purchaseDate} onChange={set('purchaseDate')} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -471,7 +471,7 @@ function ConcentrationMap({ portfolio }: { portfolio: Portfolio }) {
         </p>
       ) : (
         <>
-          <svg viewBox={`0 0 ${width} ${height}`} className="w-full" style={{ maxHeight: 180 }}>
+          <svg viewBox={`0 0 ${width} ${height}`} className="w-full max-h-[180px]">
             {Object.entries(STATE_TILES).map(([code, [col, row]]) => {
               const pct = pctByState[code] ?? 0;
               return (

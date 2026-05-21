@@ -36,3 +36,6 @@ backend/.rapidapi/
 *.log
 .idea/
 .vscode/
+
+# Local dev server logs, pids, screenshots
+.dev-logs/

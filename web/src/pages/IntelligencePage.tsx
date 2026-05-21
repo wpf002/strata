@@ -225,7 +225,7 @@ export default function IntelligencePage() {
           <div className="glass rounded-2xl p-6 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-semibold text-white">Send to Client</h3>
-              <button onClick={() => setShowBriefModal(false)} className="text-slate-500 hover:text-white transition-colors"><X size={16} /></button>
+              <button onClick={() => setShowBriefModal(false)} aria-label="Close" className="text-slate-500 hover:text-white transition-colors"><X size={16} /></button>
             </div>
             {!briefReportId ? (
               <div className="space-y-3">
@@ -930,7 +930,7 @@ function FinancialsTab({ p }: { p: Property }) {
           ].map(a => (
             <div key={a.label} className="mb-4">
               <label className="text-xs text-slate-500 flex justify-between mb-1.5"><span>{a.label}</span><span className="text-amber-400 font-mono">{a.val}</span></label>
-              <input type="range" min={a.min} max={a.max} step={a.step} value={a.value} onChange={e => a.set(+e.target.value)} />
+              <input type="range" aria-label={a.label} min={a.min} max={a.max} step={a.step} value={a.value} onChange={e => a.set(+e.target.value)} />
             </div>
           ))}
         </div>
@@ -940,7 +940,7 @@ function FinancialsTab({ p }: { p: Property }) {
           <StatCard label="Cash Flow" value={`${cf >= 0 ? '+' : ''}${fmt.currency(cf)}/mo`} color={cf >= 0 ? 'green' : 'red'} />
           <StatCard label="Cap Rate" value={fmt.pct(cap)} color="gold" />
           <StatCard label="CoC Return" value={fmt.pct(coc)} color={coc >= 6 ? 'green' : 'default'} />
-          <StatCard label="DSCR" value={dscr.toFixed(2)} sub={dscr >= 1.25 ? '✓ Qualifies' : '✗ Below min'} color={dscr >= 1.25 ? 'green' : 'red'} />
+          <StatCard label="DSCR" value={dscr.toFixed(2)} sub={dscr >= 1.25 ? <span className="inline-flex items-center gap-1"><Check size={11} /> Qualifies</span> : <span className="inline-flex items-center gap-1"><X size={11} /> Below min</span>} color={dscr >= 1.25 ? 'green' : 'red'} />
         </div>
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-semibold text-white mb-4">Monthly P&L</h3>
@@ -1098,7 +1098,7 @@ function RiskTab({ p, riskData }: { p: Property; riskData: RiskData | null }) {
                 <FloodBadge riskLabel={flood.riskLabel} />
               </div>
               <p className="text-xs text-slate-500">Zone {flood.zone} — {flood.description}</p>
-              {flood.inSfha && <p className="text-xs text-red-400 mt-1">⚠ Special Flood Hazard Area — flood insurance likely required</p>}
+              {flood.inSfha && <p className="text-xs text-red-400 mt-1 inline-flex items-center gap-1"><AlertTriangle size={12} /> Special Flood Hazard Area — flood insurance likely required</p>}
             </div>
           </div>
         )}
@@ -1118,7 +1118,7 @@ function RiskTab({ p, riskData }: { p: Property; riskData: RiskData | null }) {
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><ThumbsUp size={14} className="text-emerald-400" /> Strengths</h3>
           {['Strong rental demand', 'No flood zone exposure', 'Carrier availability in Texas', 'Tax rate in line with market'].map((s, i) => (
-            <div key={i} className="flex items-start gap-2 mb-2"><span className="text-emerald-400">✓</span><span className="text-xs text-slate-400">{s}</span></div>
+            <div key={i} className="flex items-start gap-2 mb-2"><Check size={14} className="text-emerald-400 shrink-0 mt-0.5" /><span className="text-xs text-slate-400">{s}</span></div>
           ))}
         </div>
         <div className="glass rounded-xl p-5">

@@ -14,6 +14,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from .config import get_settings
 from .database import get_db
@@ -123,7 +124,15 @@ async def get_current_user(
             name=meta.get("full_name") or meta.get("name"),
         )
         db.add(user)
-        await db.flush()
+        try:
+            await db.flush()
+        except IntegrityError:
+            # Concurrent requests on a user's first login all try to auto-provision
+            # the same row; the losers hit users_pkey. Roll back and re-read the
+            # row the winner just inserted.
+            await db.rollback()
+            result = await db.execute(select(User).where(User.id == user_id))
+            user = result.scalar_one()
 
     return user
 
