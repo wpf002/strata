@@ -593,6 +593,28 @@ function EquityTimeline({ holding }: { holding: PortfolioHolding }) {
   );
 }
 
+// Holding thumbnail with graceful fallback. Manually-added holdings have no
+// stored image (empty string), and an empty <img src> never fires onError —
+// so we render a placeholder icon instead of a blank square.
+function HoldingThumb({ src }: { src: string | null }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) {
+    return (
+      <div className="w-14 h-14 rounded-lg bg-amber-500/10 flex items-center justify-center flex-shrink-0">
+        <Home size={20} className="text-amber-400/40" />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 export default function PortfolioPage() {
   const navigate = useNavigate();
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
@@ -750,7 +772,7 @@ export default function PortfolioPage() {
             {portfolio.holdings.map(h => (
               <div key={h.id} onClick={() => setActiveId(h.id)} className={clsx('rounded-xl p-4 cursor-pointer transition-all border', activeId === h.id ? 'border-amber-500/40 bg-amber-500/5' : 'border-white/5 glass hover:border-white/15')}>
                 <div className="flex items-start gap-3">
-                  <img src={h.image} alt="" className="w-14 h-14 rounded-lg object-cover flex-shrink-0" onError={e => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=1200&q=85&auto=format&fit=crop'; }} />
+                  <HoldingThumb src={h.image} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-white truncate">{h.address.split(',')[0]}</p>
                     <p className="text-xs text-slate-500 truncate">{h.address.split(',').slice(1).join(',').trim()}</p>
@@ -819,7 +841,9 @@ export default function PortfolioPage() {
               <MetricRow label="Monthly Expenses" value={fmt.currency(active.monthlyExpenses)} />
               <MetricRow label="Net Cash Flow" value={`+${fmt.currency(active.cashFlow)}/mo`} highlight />
               <MetricRow label="Cap Rate" value={fmt.pct(active.capRate)} />
-              <div className="mt-4 pt-4 border-t border-white/10">
+              <MetricRow label="Total Return" value={fmt.pct(active.totalReturn)} />
+              <MetricRow label="Annual Cash Flow" value={`+${fmt.currency(active.cashFlow * 12)}`} />
+              <div className="mt-4">
                 <p className="text-xs text-slate-500 mb-1">STRATA Recommendation</p>
                 <p className="text-sm text-white">{active.recommendationNote}</p>
               </div>
@@ -846,15 +870,21 @@ export default function PortfolioPage() {
                   </button>
                 </div>
               </div>
-
-              {showAnalysis && (
-                <AnalysisPanel holdingId={active.id} onClose={() => setShowAnalysis(false)} />
-              )}
-              {showTax && (
-                <TaxPanel holdingId={active.id} onClose={() => setShowTax(false)} />
-              )}
             </div>
           </div>
+
+          {/* Analysis / Tax render full-width below the row so opening them
+              never stretches one column and strands the other. */}
+          {showAnalysis && (
+            <div className="mt-5">
+              <AnalysisPanel holdingId={active.id} onClose={() => setShowAnalysis(false)} />
+            </div>
+          )}
+          {showTax && (
+            <div className="mt-5">
+              <TaxPanel holdingId={active.id} onClose={() => setShowTax(false)} />
+            </div>
+          )}
         </div>
       </div>
 

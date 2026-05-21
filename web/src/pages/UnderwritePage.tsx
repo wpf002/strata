@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Calculator, Save, Share2, FileText, ChevronDown, CheckCircle, XCircle, AlertCircle, ChevronRight, Hammer } from 'lucide-react';
+import { Calculator, Share2, ChevronDown, CheckCircle, XCircle, AlertCircle, ChevronRight, Hammer } from 'lucide-react';
 import { getProperty, calculateUnderwriting, getRenovationEstimate, logActivity } from '../api/client';
 import type { RenovationScope, RenovationCondition, RenovationEstimate } from '../api/client';
-import { supabase } from '../lib/supabase';
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? '';
 import type { Property, UnderwritingInputs, UnderwritingOutputs } from '../types';
@@ -13,6 +12,219 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 
 const STRATEGIES = ['Long-Term Rental', 'BRRRR', 'Fix & Flip', 'Short-Term Rental', 'House Hack', 'Appreciation Play', 'Renovation'];
 const LOAN_TYPES = ['30yr Fixed', '15yr Fixed', 'DSCR Loan', 'Interest Only', 'Hard Money'];
+
+// ── Strategy-aware headline ─────────────────────────────────────────────────
+// The recommendation banner + the 5 key-metric cards adapt to the selected
+// strategy so each one tells a different story (flip profit vs. BRRRR cash-left
+// vs. STR premium, etc.). Numbers here are quick estimates from sensible
+// defaults; the interactive panel below each strategy is the precise tool.
+
+const HOLD_YEARS = 7;
+const APPRECIATION_RATE = 0.03;
+
+type RecKey = 'good' | 'ok' | 'warn' | 'bad';
+
+interface StrategyHeadline {
+  label: string;
+  recKey: RecKey;
+  reason: string;
+  metrics: { label: string; value: string; color?: string }[];
+}
+
+const REC_STYLE: Record<RecKey, string> = {
+  good: 'text-emerald-400 border-emerald-400/40 bg-emerald-400/10',
+  ok: 'text-amber-400 border-amber-500/40 bg-amber-500/10',
+  warn: 'text-orange-400 border-orange-400/40 bg-orange-400/10',
+  bad: 'text-red-400 border-red-400/40 bg-red-400/10',
+};
+
+function monthlyMortgage(loan: number, annualRatePct: number, termMonths = 360): number {
+  const r = annualRatePct / 100 / 12;
+  if (r === 0) return loan / termMonths;
+  return (loan * (r * Math.pow(1 + r, termMonths))) / (Math.pow(1 + r, termMonths) - 1);
+}
+
+function amortizedBalance(loan: number, annualRatePct: number, termMonths: number, monthsPaid: number): number {
+  const r = annualRatePct / 100 / 12;
+  if (r === 0) return Math.max(0, loan * (1 - monthsPaid / termMonths));
+  const f = Math.pow(1 + r, termMonths);
+  const p = Math.pow(1 + r, monthsPaid);
+  return Math.max(0, (loan * (f - p)) / (f - 1));
+}
+
+function deriveHeadline(
+  strategy: string,
+  i: Omit<UnderwritingInputs, 'propertyId'>,
+  o: UnderwritingOutputs,
+): StrategyHeadline {
+  const cf = (n: number) => fmt.currency(n);
+  const downAmount = i.purchasePrice * (i.downPaymentPct / 100);
+  const loanAmt = i.purchasePrice - downAmount;
+  const cashToClose = o.totalCashToClose;
+
+  switch (strategy) {
+    case 'Fix & Flip': {
+      const rehab = 40000;
+      const arv = Math.round((i.purchasePrice * 1.30) / 5000) * 5000;
+      const holdMonths = 6;
+      const holding = (i.purchasePrice * 0.12 / 12) * holdMonths;
+      const closingBuy = i.purchasePrice * 0.02;
+      const closingSell = arv * 0.01;
+      const totalCost = i.purchasePrice + rehab + holding + holding + closingBuy;
+      const agentFees = arv * 0.055;
+      const netProfit = arv - totalCost - agentFees - closingSell;
+      const roc = totalCost ? (netProfit / totalCost) * 100 : 0;
+      const annualized = roc * (12 / holdMonths);
+      const recKey: RecKey = roc >= 15 ? 'good' : roc >= 8 ? 'ok' : roc >= 0 ? 'warn' : 'bad';
+      const label = roc >= 15 ? 'Strong Flip' : roc >= 8 ? 'Workable Flip' : roc >= 0 ? 'Thin Margin' : 'Avoid Flip';
+      return {
+        label, recKey,
+        reason: `Est. ${cf(netProfit)} net profit on ${fmt.compact(totalCost)} all-in (ARV ${fmt.compact(arv)}, 6-mo hold) — ${fmt.pct(roc)} return on cost. Tune rehab & ARV in the panel below.`,
+        metrics: [
+          { label: 'Net Profit', value: `${netProfit >= 0 ? '+' : ''}${cf(netProfit)}`, color: netProfit >= 0 ? 'text-emerald-400' : 'text-red-400' },
+          { label: 'Return on Cost', value: fmt.pct(roc), color: roc >= 15 ? 'text-emerald-400' : roc >= 8 ? 'text-amber-400' : 'text-red-400' },
+          { label: 'Annualized', value: fmt.pct(annualized), color: 'text-slate-300' },
+          { label: 'All-In Cost', value: fmt.compact(totalCost), color: 'text-slate-300' },
+          { label: 'Est. ARV', value: fmt.compact(arv), color: 'text-amber-400' },
+        ],
+      };
+    }
+    case 'BRRRR': {
+      const rehab = 35000;
+      const arv = Math.round((i.purchasePrice * 1.25) / 5000) * 5000;
+      const holding = (i.purchasePrice * 0.12 / 12) * 6;
+      const totalProjectCost = i.purchasePrice + rehab + holding;
+      const refiLoan = arv * 0.75;
+      const equityCreated = arv - i.purchasePrice - rehab;
+      const cashLeft = Math.max(0, totalProjectCost - refiLoan);
+      const postRefiCF = o.noi - monthlyMortgage(refiLoan, 7.0);
+      const roe = cashLeft >= 1000 ? (postRefiCF * 12 / cashLeft) * 100 : null;
+      const recKey: RecKey = cashLeft < 10000 && postRefiCF > 0 ? 'good' : equityCreated > 20000 ? 'ok' : postRefiCF >= 0 ? 'warn' : 'bad';
+      const label = cashLeft < 10000 && postRefiCF > 0 ? 'Strong BRRRR' : equityCreated > 20000 ? 'Solid BRRRR' : postRefiCF >= 0 ? 'Marginal BRRRR' : 'Avoid BRRRR';
+      return {
+        label, recKey,
+        reason: `Est. ${cf(cashLeft)} left in the deal after a 75% LTV refi at ${fmt.compact(arv)} ARV, creating ${cf(equityCreated)} in equity. Refine rehab/ARV/refi in the panel below.`,
+        metrics: [
+          { label: 'Cash Left in Deal', value: cf(cashLeft), color: cashLeft < 10000 ? 'text-emerald-400' : 'text-slate-300' },
+          { label: 'Equity Created', value: cf(equityCreated), color: equityCreated > 20000 ? 'text-amber-400' : 'text-slate-300' },
+          { label: 'BRRRR ROE', value: roe === null ? 'Infinite' : fmt.pct(roe), color: 'text-emerald-400' },
+          { label: 'Post-Refi CF', value: `${postRefiCF >= 0 ? '+' : ''}${cf(postRefiCF)}/mo`, color: postRefiCF >= 0 ? 'text-emerald-400' : 'text-red-400' },
+          { label: 'Est. ARV', value: fmt.compact(arv), color: 'text-amber-400' },
+        ],
+      };
+    }
+    case 'Short-Term Rental': {
+      const nightly = 165, occ = 0.70;
+      const gross = nightly * 30 * occ;
+      const stays = (30 * occ) / 3.5;
+      const strRev = gross - gross * 0.03 + stays * 120;
+      const tax = (i.purchasePrice * 0.022) / 12;
+      const maint = (i.purchasePrice * (i.maintenancePct / 100)) / 12;
+      const opex = strRev * 0.20 + tax + i.insuranceMonthly * 1.3 + maint + strRev * (i.capexPct / 100);
+      const strCap = i.purchasePrice ? ((strRev - opex) * 12 / i.purchasePrice) * 100 : 0;
+      const ltrMid = o.effectiveGrossIncome;
+      const premium = ltrMid ? ((strRev - ltrMid) / ltrMid) * 100 : 0;
+      const recKey: RecKey = premium > 30 ? 'good' : premium > 10 ? 'ok' : premium > 0 ? 'warn' : 'bad';
+      const label = premium > 30 ? 'STR Outperforms' : premium > 10 ? 'STR Edge' : premium > 0 ? 'Marginal STR' : 'LTR Better';
+      return {
+        label, recKey,
+        reason: `At $165/night and 70% occupancy, est. ${cf(strRev)}/mo revenue — ${fmt.pct(premium)} vs long-term rent. Adjust nightly rate & occupancy in the panel below.`,
+        metrics: [
+          { label: 'STR Revenue', value: `${cf(strRev)}/mo`, color: 'text-amber-400' },
+          { label: 'STR Cap Rate', value: fmt.pct(strCap), color: strCap >= 6 ? 'text-emerald-400' : 'text-slate-300' },
+          { label: 'vs LTR', value: `${premium >= 0 ? '+' : ''}${fmt.pct(premium)}`, color: premium >= 0 ? 'text-emerald-400' : 'text-red-400' },
+          { label: 'Annual Rev', value: fmt.compact(strRev * 12), color: 'text-slate-300' },
+          { label: 'LTR Rent', value: `${cf(ltrMid)}/mo`, color: 'text-slate-300' },
+        ],
+      };
+    }
+    case 'House Hack': {
+      const rentalIncome = i.monthlyRent * 0.6;
+      const totalCarry = o.mortgage + o.totalExpenses;
+      const housingCost = totalCarry - rentalIncome;
+      const yourPortionRent = i.monthlyRent * 0.4;
+      const offsetPct = totalCarry ? (rentalIncome / totalCarry) * 100 : 0;
+      const savings = yourPortionRent - Math.max(0, housingCost);
+      const recKey: RecKey = housingCost <= 0 ? 'good' : housingCost < yourPortionRent * 0.5 ? 'good' : housingCost < yourPortionRent ? 'ok' : 'warn';
+      const label = housingCost <= 0 ? 'Live for Free+' : housingCost < yourPortionRent ? 'Below-Market Living' : 'Partial Offset';
+      return {
+        label, recKey,
+        reason: housingCost <= 0
+          ? `Renting out 60% of the property covers the full payment and nets ${cf(-housingCost)}/mo — you live free and still cash flow.`
+          : `Renting out 60% offsets ${fmt.pct(offsetPct, 0)} of carry, leaving ${cf(housingCost)}/mo housing cost vs ${cf(yourPortionRent)} to rent comparable space — saving ${cf(savings)}/mo.`,
+        metrics: [
+          { label: 'Net Housing Cost', value: housingCost <= 0 ? `+${cf(-housingCost)}/mo` : `${cf(housingCost)}/mo`, color: housingCost <= 0 ? 'text-emerald-400' : 'text-amber-400' },
+          { label: 'Cost Offset', value: fmt.pct(offsetPct, 0), color: 'text-amber-400' },
+          { label: 'Saved vs Rent', value: `${cf(savings)}/mo`, color: savings >= 0 ? 'text-emerald-400' : 'text-red-400' },
+          { label: 'DSCR', value: o.dscr.toFixed(2), color: o.dscr >= 1.25 ? 'text-emerald-400' : 'text-slate-300' },
+          { label: 'Cash to Close', value: fmt.compact(cashToClose), color: 'text-slate-300' },
+        ],
+      };
+    }
+    case 'Appreciation Play': {
+      const fv = i.purchasePrice * Math.pow(1 + APPRECIATION_RATE, HOLD_YEARS);
+      const apprGain = fv - i.purchasePrice;
+      const paydown = loanAmt - amortizedBalance(loanAmt, i.interestRate, 360, HOLD_YEARS * 12);
+      const equityGain = apprGain + paydown + o.cashFlow * 12 * HOLD_YEARS;
+      const totalReturnPct = cashToClose ? (equityGain / cashToClose) * 100 : 0;
+      const annualized = totalReturnPct / HOLD_YEARS;
+      const recKey: RecKey = annualized >= 12 ? 'good' : annualized >= 7 ? 'ok' : o.cashFlow > -400 ? 'warn' : 'bad';
+      const label = annualized >= 12 ? 'Strong Appreciation' : annualized >= 7 ? 'Solid Long Hold' : o.cashFlow > -400 ? 'Speculative' : 'High Carry Risk';
+      return {
+        label, recKey,
+        reason: `Over a ${HOLD_YEARS}-yr hold at ${fmt.pct(APPRECIATION_RATE * 100, 0)}/yr, est. ${fmt.compact(equityGain)} equity gain (appreciation + paydown + cash flow) — ${fmt.pct(annualized)} annualized on cash invested.`,
+        metrics: [
+          { label: `${HOLD_YEARS}yr Value`, value: fmt.compact(fv), color: 'text-amber-400' },
+          { label: `${HOLD_YEARS}yr Equity Gain`, value: fmt.compact(equityGain), color: 'text-emerald-400' },
+          { label: 'Annualized', value: fmt.pct(annualized), color: annualized >= 7 ? 'text-emerald-400' : 'text-slate-300' },
+          { label: 'Monthly Carry', value: `${o.cashFlow >= 0 ? '+' : ''}${cf(o.cashFlow)}`, color: o.cashFlow >= 0 ? 'text-emerald-400' : 'text-red-400' },
+          { label: 'Total Return', value: fmt.pct(totalReturnPct), color: 'text-slate-300' },
+        ],
+      };
+    }
+    case 'Renovation': {
+      const rehab = Math.round((i.purchasePrice * 0.10) / 1000) * 1000;
+      const arv = Math.round((i.purchasePrice * 1.18) / 5000) * 5000;
+      const uplift = arv - i.purchasePrice;
+      const forcedEquity = uplift - rehab;
+      const recKey: RecKey = forcedEquity > rehab * 0.5 ? 'good' : forcedEquity > 0 ? 'ok' : 'warn';
+      const label = forcedEquity > rehab * 0.5 ? 'Strong Value-Add' : forcedEquity > 0 ? 'Positive Value-Add' : 'Thin Value-Add';
+      return {
+        label, recKey,
+        reason: `A ~${fmt.compact(rehab)} renovation could lift value to ~${fmt.compact(arv)} (${fmt.pct((uplift / i.purchasePrice) * 100)} uplift), netting ~${fmt.compact(forcedEquity)} forced equity. Build the exact scope in the panel below.`,
+        metrics: [
+          { label: 'Est. Rehab', value: fmt.compact(rehab), color: 'text-slate-300' },
+          { label: 'Projected ARV', value: fmt.compact(arv), color: 'text-amber-400' },
+          { label: 'Value Uplift', value: fmt.compact(uplift), color: 'text-emerald-400' },
+          { label: 'Forced Equity', value: fmt.compact(forcedEquity), color: forcedEquity >= 0 ? 'text-emerald-400' : 'text-red-400' },
+          { label: 'Cap Rate', value: fmt.pct(o.capRate), color: 'text-slate-300' },
+        ],
+      };
+    }
+    default: { // Long-Term Rental
+      const recKey: RecKey =
+        o.cashFlow > 200 && o.cashOnCash > 6 ? 'good' :
+        o.cashFlow > 0 && o.cashOnCash > 4 ? 'ok' :
+        o.cashFlow > -100 ? 'warn' : 'bad';
+      const label = recKey === 'good' ? 'Strong Buy' : recKey === 'ok' ? 'Buy with Negotiation' : recKey === 'warn' ? 'Marginal' : 'Avoid';
+      const reason =
+        recKey === 'good' ? `${cf(o.cashFlow)}/mo cash flow · ${fmt.pct(o.cashOnCash)} CoC · DSCR ${o.dscr.toFixed(2)}` :
+        recKey === 'ok' ? `Deal works at or below ${cf(i.purchasePrice - 12000)}. Consider negotiating.` :
+        recKey === 'warn' ? 'Returns below threshold at standard assumptions. Stress-test before committing.' :
+        'Negative cash flow at any standard financing scenario at this price.';
+      return {
+        label, recKey, reason,
+        metrics: [
+          { label: 'Cash Flow', value: `${o.cashFlow >= 0 ? '+' : ''}${cf(o.cashFlow)}/mo`, color: o.cashFlow >= 0 ? 'text-emerald-400' : 'text-red-400' },
+          { label: 'Cap Rate', value: fmt.pct(o.capRate), color: o.capRate >= 5 ? 'text-amber-400' : 'text-slate-300' },
+          { label: 'CoC Return', value: fmt.pct(o.cashOnCash), color: o.cashOnCash >= 6 ? 'text-emerald-400' : 'text-slate-300' },
+          { label: 'DSCR', value: o.dscr.toFixed(2), color: o.dscr >= 1.25 ? 'text-emerald-400' : 'text-red-400' },
+          { label: 'GRM', value: `${o.grm.toFixed(1)}x`, color: 'text-slate-300' },
+        ],
+      };
+    }
+  }
+}
 
 // ── Closing Costs ─────────────────────────────────────────────────────────────
 
@@ -679,9 +891,7 @@ export default function UnderwritePage() {
   );
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [outputs, setOutputs] = useState<UnderwritingOutputs | null>(null);
-  const [saveLabel, setSaveLabel] = useState<'Save' | 'Saving…' | 'Saved!'>('Save');
   const [copied, setCopied] = useState(false);
-  const [memoLabel, setMemoLabel] = useState<'Generate Memo' | 'Copied!'>('Generate Memo');
   const [brrrrRehabOverride, setBrrrrRehabOverride] = useState<number | null>(null);
 
   const [inputs, setInputs] = useState<Omit<UnderwritingInputs, 'propertyId'>>({
@@ -730,60 +940,10 @@ export default function UnderwritePage() {
   const set = (key: keyof typeof inputs) => (val: number | string) =>
     setInputs(prev => ({ ...prev, [key]: val }));
 
-  const handleSave = async () => {
-    if (!outputs) return;
-    setSaveLabel('Saving…');
-    try {
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
-      const res = await fetch(`${BASE_URL}/underwriting/scenarios`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ property_id: propertyId, strategy, inputs: { ...inputs, strategy }, outputs }),
-      });
-      if (!res.ok) throw new Error('save failed');
-      setSaveLabel('Saved!');
-    } catch {
-      setSaveLabel('Save');
-    }
-    setTimeout(() => setSaveLabel('Save'), 2000);
-  };
-
   const handleShare = () => {
     navigator.clipboard.writeText(window.location.href);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleMemo = () => {
-    if (!outputs || !property) return;
-    const memo = [
-      `STRATA UNDERWRITING MEMO`,
-      `========================`,
-      `Property: ${property.address}, ${property.city}, ${property.state}`,
-      `Strategy: ${strategy}`,
-      ``,
-      `ASSUMPTIONS`,
-      `Purchase Price:   $${inputs.purchasePrice.toLocaleString()}`,
-      `Down Payment:     ${inputs.downPaymentPct}% ($${(inputs.purchasePrice * inputs.downPaymentPct / 100).toLocaleString()})`,
-      `Loan Type:        ${inputs.loanType}`,
-      `Interest Rate:    ${inputs.interestRate}%`,
-      `Monthly Rent:     $${inputs.monthlyRent.toLocaleString()}`,
-      `Vacancy:          ${inputs.vacancyPct}%`,
-      ``,
-      `RESULTS`,
-      `Recommendation:   ${outputs.recommendation}`,
-      `Cash Flow:        $${Math.round(outputs.cashFlow).toLocaleString()}/mo`,
-      `Cap Rate:         ${outputs.capRate.toFixed(2)}%`,
-      `Cash-on-Cash:     ${outputs.cashOnCash.toFixed(2)}%`,
-      `DSCR:             ${outputs.dscr.toFixed(2)}x`,
-      `NOI:              $${Math.round(outputs.noi).toLocaleString()}/mo`,
-      `Total Cash to Close: $${Math.round(outputs.totalCashToClose).toLocaleString()}`,
-      ``,
-      `Generated by STRATA — ${new Date().toLocaleDateString()}`,
-    ].join('\n');
-    navigator.clipboard.writeText(memo);
-    setMemoLabel('Copied!');
-    setTimeout(() => setMemoLabel('Generate Memo'), 2000);
   };
 
   if (!property || !outputs) {
@@ -805,12 +965,7 @@ export default function UnderwritePage() {
     );
   }
 
-  const recColor = {
-    'Strong Buy': 'text-emerald-400 border-emerald-400/40 bg-emerald-400/10',
-    'Buy with Negotiation': 'text-amber-400 border-amber-500/40 bg-amber-500/10',
-    'Marginal': 'text-orange-400 border-orange-400/40 bg-orange-400/10',
-    'Avoid': 'text-red-400 border-red-400/40 bg-red-400/10',
-  }[outputs.recommendation];
+  const headline = deriveHeadline(strategy, inputs, outputs);
 
   const fullInputs = { ...inputs, propertyId };
 
@@ -834,9 +989,7 @@ export default function UnderwritePage() {
           ))}
         </div>
         <div className="flex items-center gap-2 ml-auto md:ml-2 flex-shrink-0">
-          <button onClick={handleSave} aria-label={saveLabel} className="btn-ghost text-xs py-1.5 px-2.5 md:px-3"><Save size={12} /> <span className="hidden md:inline">{saveLabel}</span></button>
           <button onClick={handleShare} aria-label="Share" className="btn-ghost text-xs py-1.5 px-2.5 md:px-3"><Share2 size={12} /> <span className="hidden md:inline">{copied ? 'Copied!' : 'Share'}</span></button>
-          <button onClick={handleMemo} className="btn-primary text-xs py-2 px-3 md:px-4"><FileText size={12} /> <span className="hidden sm:inline">{memoLabel}</span></button>
         </div>
       </div>
 
@@ -891,16 +1044,11 @@ export default function UnderwritePage() {
         {/* Results */}
         <div className="flex-1 overflow-y-auto px-4 md:px-5 py-4 space-y-4 min-w-0">
           {/* Recommendation */}
-          <div className={clsx('rounded-xl p-4 border flex items-center gap-4', recColor)}>
-            <div className="flex items-center">{outputs.recommendation === 'Strong Buy' || outputs.recommendation === 'Buy with Negotiation' ? <CheckCircle size={28} /> : outputs.recommendation === 'Marginal' ? <AlertCircle size={28} /> : <XCircle size={28} />}</div>
+          <div className={clsx('rounded-xl p-4 border flex items-center gap-4', REC_STYLE[headline.recKey])}>
+            <div className="flex items-center">{headline.recKey === 'good' || headline.recKey === 'ok' ? <CheckCircle size={28} /> : headline.recKey === 'warn' ? <AlertCircle size={28} /> : <XCircle size={28} />}</div>
             <div className="flex-1">
-              <p className="font-bold text-base">{outputs.recommendation}</p>
-              <p className="text-sm opacity-80">
-                {outputs.recommendation === 'Strong Buy' && `${fmt.currency(outputs.cashFlow)}/mo cash flow · ${fmt.pct(outputs.cashOnCash)} CoC · DSCR ${outputs.dscr.toFixed(2)}`}
-                {outputs.recommendation === 'Buy with Negotiation' && `Deal works at or below ${fmt.currency(inputs.purchasePrice - 12000)}. Consider negotiating.`}
-                {outputs.recommendation === 'Marginal' && 'Returns below threshold at standard assumptions. Stress-test before committing.'}
-                {outputs.recommendation === 'Avoid' && 'Negative cash flow at any standard financing scenario at this price.'}
-              </p>
+              <p className="font-bold text-base">{headline.label} <span className="text-xs font-normal opacity-60">· {strategy}</span></p>
+              <p className="text-sm opacity-80">{headline.reason}</p>
             </div>
             <div className="flex items-center gap-2">
               <ScoreBadge score={property.dealScore} />
@@ -910,13 +1058,7 @@ export default function UnderwritePage() {
 
           {/* Key metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {[
-              { label: 'Cash Flow', value: `${outputs.cashFlow >= 0 ? '+' : ''}${fmt.currency(outputs.cashFlow)}/mo`, color: outputs.cashFlow >= 0 ? 'text-emerald-400' : 'text-red-400' },
-              { label: 'Cap Rate', value: fmt.pct(outputs.capRate), color: outputs.capRate >= 5 ? 'text-amber-400' : 'text-slate-300' },
-              { label: 'CoC Return', value: fmt.pct(outputs.cashOnCash), color: outputs.cashOnCash >= 6 ? 'text-emerald-400' : 'text-slate-300' },
-              { label: 'DSCR', value: outputs.dscr.toFixed(2), color: outputs.dscr >= 1.25 ? 'text-emerald-400' : 'text-red-400' },
-              { label: 'GRM', value: `${outputs.grm.toFixed(1)}x`, color: 'text-slate-300' },
-            ].map(m => (
+            {headline.metrics.map(m => (
               <div key={m.label} className="glass rounded-xl p-4 text-center">
                 <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">{m.label}</p>
                 <p className={clsx('text-xl font-bold font-mono', m.color)}>{m.value}</p>
@@ -924,6 +1066,11 @@ export default function UnderwritePage() {
             ))}
           </div>
 
+          {/* Rental P&L / scenarios / DSCR only apply when the property is held
+              and rented. Fix & Flip is a sell strategy — its economics live in
+              the Flip panel below, so we hide the rental analysis there. */}
+          {strategy !== 'Fix & Flip' && (
+          <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* P&L */}
             <div className="glass rounded-xl p-5">
@@ -997,6 +1144,8 @@ export default function UnderwritePage() {
               </p>
             </div>
           </div>
+          </>
+          )}
 
           {/* Strategy-specific panels */}
           {strategy === 'BRRRR' && <BrrrrPanel inputs={fullInputs} rehabOverride={brrrrRehabOverride} />}
