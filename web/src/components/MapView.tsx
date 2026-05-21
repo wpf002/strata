@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { Star } from 'lucide-react';
 import type { Property } from '../types';
 import { fmt } from './UI';
 
@@ -109,8 +110,9 @@ export default function MapView({ properties, highlightedId: _highlightedId, onP
                     <button
                       style={{ background: watchedIds?.has(p.id) ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.07)', color: watchedIds?.has(p.id) ? '#f59e0b' : '#94a3b8', border: `1px solid ${watchedIds?.has(p.id) ? 'rgba(245,158,11,0.4)' : 'rgba(255,255,255,0.1)'}`, borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
                       onClick={() => onWatch(p.id)}
+                      aria-label={watchedIds?.has(p.id) ? 'Remove from watchlist' : 'Add to watchlist'}
                     >
-                      ★
+                      <Star size={14} fill={watchedIds?.has(p.id) ? '#f59e0b' : 'none'} style={{ display: 'inline', verticalAlign: 'middle' }} />
                     </button>
                   )}
                 </div>

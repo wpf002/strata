@@ -8,6 +8,7 @@ pydantic-settings==2.6.1
 python-dotenv==1.0.1
 httpx==0.28.0
 PyJWT==2.10.1
+cryptography==48.0.0
 greenlet==3.1.1
 python-multipart==0.0.20
 apscheduler==3.10.4

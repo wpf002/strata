@@ -92,7 +92,7 @@ export default function WatchlistPage() {
             <Star size={28} className="text-slate-600 mx-auto mb-3" />
             <p className="text-base font-semibold text-white mb-1">No watchlisted properties yet</p>
             <p className="text-sm text-slate-500 mb-5">
-              Tap the ⭐ Watch button on any property card to save it here.
+              Tap the <Star size={13} className="inline align-text-bottom" /> Watch button on any property card to save it here.
             </p>
             <button onClick={() => navigate('/')} className="btn-primary text-sm">Browse Properties</button>
           </div>
@@ -143,8 +143,7 @@ function WatchlistCard({
       <img
         src={p.image}
         alt={p.address}
-        className="w-full sm:w-44 h-40 sm:h-auto object-cover flex-shrink-0"
-        style={{ minHeight: 148 }}
+        className="w-full sm:w-44 h-40 sm:h-auto object-cover flex-shrink-0 min-h-[148px]"
       />
       <div className="flex-1 p-4 min-w-0">
         <div className="flex items-start justify-between gap-2 mb-2">

@@ -11,6 +11,7 @@ const API_PATHS = [
   '/search', '/saved-searches', '/watchlists', '/health',
   '/clients', '/users', '/auth', '/copilot', '/reports',
   '/deal-rooms', '/alerts', '/settings', '/api', '/tour',
+  '/leads', '/activity',
 ]
 
 const bypassHtml = (req: { method?: string; headers: Record<string, string | string[] | undefined> }) => {

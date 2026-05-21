@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Calculator, Save, Share2, FileText, ChevronDown, CheckCircle, XCircle, ChevronRight, Hammer } from 'lucide-react';
+import { Calculator, Save, Share2, FileText, ChevronDown, CheckCircle, XCircle, AlertCircle, ChevronRight, Hammer } from 'lucide-react';
 import { getProperty, calculateUnderwriting, getRenovationEstimate, logActivity } from '../api/client';
 import type { RenovationScope, RenovationCondition, RenovationEstimate } from '../api/client';
 import { supabase } from '../lib/supabase';
@@ -850,7 +850,7 @@ export default function UnderwritePage() {
             <SliderRow label="Down Payment" value={inputs.downPaymentPct} display={`${inputs.downPaymentPct}% · ${fmt.compact(inputs.purchasePrice * inputs.downPaymentPct / 100)}`} min={3.5} max={100} step={0.5} onChange={v => set('downPaymentPct')(v)} />
             <div className="mb-3">
               <label className="text-xs text-slate-500 block mb-1.5">Loan Type</label>
-              <select className="strata-input text-xs py-1.5" value={inputs.loanType} onChange={e => set('loanType')(e.target.value)}>
+              <select aria-label="Loan type" className="strata-input text-xs py-1.5" value={inputs.loanType} onChange={e => set('loanType')(e.target.value)}>
                 {LOAN_TYPES.map(t => <option key={t}>{t}</option>)}
               </select>
             </div>
@@ -892,7 +892,7 @@ export default function UnderwritePage() {
         <div className="flex-1 overflow-y-auto px-4 md:px-5 py-4 space-y-4 min-w-0">
           {/* Recommendation */}
           <div className={clsx('rounded-xl p-4 border flex items-center gap-4', recColor)}>
-            <div className="text-2xl font-bold">{outputs.recommendation === 'Strong Buy' || outputs.recommendation === 'Buy with Negotiation' ? '✓' : outputs.recommendation === 'Marginal' ? '!' : '✗'}</div>
+            <div className="flex items-center">{outputs.recommendation === 'Strong Buy' || outputs.recommendation === 'Buy with Negotiation' ? <CheckCircle size={28} /> : outputs.recommendation === 'Marginal' ? <AlertCircle size={28} /> : <XCircle size={28} />}</div>
             <div className="flex-1">
               <p className="font-bold text-base">{outputs.recommendation}</p>
               <p className="text-sm opacity-80">
@@ -1029,7 +1029,7 @@ function SliderRow({ label, value, display, min, max, step, onChange }: {
         <span>{label}</span>
         <span className="text-amber-400 font-mono">{display}</span>
       </label>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={e => onChange(+e.target.value)} />
+      <input type="range" aria-label={label} min={min} max={max} step={step} value={value} onChange={e => onChange(+e.target.value)} />
     </div>
   );
 }

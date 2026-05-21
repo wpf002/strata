@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import and_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import get_current_user
@@ -90,15 +91,12 @@ async def record_activity(
             detail=f"Invalid activity_type '{body.activity_type}'. Allowed: {sorted(ACTIVITY_TYPES)}",
         )
 
-    existing = await db.execute(
-        select(UserPropertyActivity).where(
-            and_(
-                UserPropertyActivity.user_id == current_user.id,
-                UserPropertyActivity.property_id == body.property_id,
-                UserPropertyActivity.activity_type == body.activity_type,
-            )
-        )
+    match = and_(
+        UserPropertyActivity.user_id == current_user.id,
+        UserPropertyActivity.property_id == body.property_id,
+        UserPropertyActivity.activity_type == body.activity_type,
     )
+    existing = await db.execute(select(UserPropertyActivity).where(match))
     row = existing.scalar_one_or_none()
     now = datetime.now(timezone.utc)
 
@@ -107,18 +105,31 @@ async def record_activity(
         row.last_occurred_at = now
         if body.metadata:
             row.activity_metadata = body.metadata
-    else:
-        row = UserPropertyActivity(
-            user_id=current_user.id,
-            property_id=body.property_id,
-            activity_type=body.activity_type,
-            count=1,
-            last_occurred_at=now,
-            activity_metadata=body.metadata,
-        )
-        db.add(row)
+        await db.flush()
+        return {"ok": True, "count": row.count}
 
-    await db.flush()
+    row = UserPropertyActivity(
+        user_id=current_user.id,
+        property_id=body.property_id,
+        activity_type=body.activity_type,
+        count=1,
+        last_occurred_at=now,
+        activity_metadata=body.metadata,
+    )
+    db.add(row)
+    try:
+        await db.flush()
+    except IntegrityError:
+        # Concurrent identical activity (e.g. React StrictMode double-fires the
+        # effect, or rapid re-nav) won the insert against uq_user_property_type.
+        # Roll back and bump the row the winner created.
+        await db.rollback()
+        row = (await db.execute(select(UserPropertyActivity).where(match))).scalar_one()
+        row.count += 1
+        row.last_occurred_at = now
+        if body.metadata:
+            row.activity_metadata = body.metadata
+        await db.flush()
     return {"ok": True, "count": row.count}
 
 
