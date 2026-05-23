@@ -39,6 +39,30 @@ function DataSource({ label }: { label: string }) {
   return <p className="text-[10px] text-slate-600 mt-2 leading-tight">{label}</p>;
 }
 
+// Renders the List + Rec. callouts beneath the offer range bar. Each label is
+// positioned by % but clamped so it never escapes the container, and if the two
+// pins are close together (< 18% apart) the Rec. label drops to a second line
+// to avoid overlap.
+function PinLegend({ listPct, recPct }: { listPct: number; recPct: number }) {
+  const close = Math.abs(listPct - recPct) < 18;
+  const clampStyle = (pct: number) => ({
+    left: `${Math.max(6, Math.min(94, pct))}%`,
+  });
+  return (
+    <div className={clsx('relative mt-2 h-4', close && 'h-8')}>
+      <div className="absolute -translate-x-1/2 text-[10px] text-red-400 font-semibold whitespace-nowrap" style={clampStyle(listPct)}>
+        List
+      </div>
+      <div
+        className={clsx('absolute -translate-x-1/2 text-[10px] text-amber-400 font-semibold whitespace-nowrap', close && 'top-4')}
+        style={clampStyle(recPct)}
+      >
+        Rec.
+      </div>
+    </div>
+  );
+}
+
 function rentLabelFor(source: string | undefined): string {
   if (!source) return 'Source: Rent Estimate';
   const s = source.toLowerCase();
@@ -467,32 +491,30 @@ function OfferStrategyTab({ p }: { p: Property }) {
             </div>
           </div>
 
-          {/* Offer range bar */}
+          {/* Offer range bar — labels above the bar (Low/Mid/High) and pin
+              callouts BELOW so they never collide with the range labels. */}
           <div className="mb-4">
             <div className="flex justify-between text-xs text-slate-500 mb-2">
               <span>Low: <span className="text-white font-mono">{fmt.compact(result.offerLow)}</span></span>
               <span>Mid: <span className="text-white font-mono">{fmt.compact(result.offerMid)}</span></span>
               <span>High: <span className="text-white font-mono">{fmt.compact(result.offerHigh)}</span></span>
             </div>
-            <div className="relative h-6 bg-navy-800 rounded-lg overflow-visible">
-              <div className="absolute inset-y-0 left-0 right-0 flex items-center px-3">
-                <div className="w-full h-2 bg-white/5 rounded-full relative">
-                  <div className="absolute inset-0 rounded-full bg-gradient-to-r from-blue-500/40 via-amber-500/60 to-emerald-500/40" />
-                  {/* List price pin */}
-                  <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2" style={{ left: `${listPinPct}%` }}>
-                    <div className="w-0.5 h-5 bg-red-400 relative -mt-1.5">
-                      <div className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] text-red-400 font-semibold">List</div>
-                    </div>
-                  </div>
-                  {/* Recommended offer pin */}
-                  <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2" style={{ left: `${recPinPct}%` }}>
-                    <div className="w-3 h-3 rounded-full bg-amber-400 border-2 border-amber-300 relative">
-                      <div className="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] text-amber-400 font-semibold">Rec.</div>
-                    </div>
-                  </div>
-                </div>
+            <div className="relative h-3 mx-1.5">
+              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-2 rounded-full bg-white/5">
+                <div className="absolute inset-0 rounded-full bg-gradient-to-r from-blue-500/40 via-amber-500/60 to-emerald-500/40" />
+              </div>
+              {/* List price pin */}
+              <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2" style={{ left: `${listPinPct}%` }}>
+                <div className="w-0.5 h-5 bg-red-400" />
+              </div>
+              {/* Recommended offer pin */}
+              <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2" style={{ left: `${recPinPct}%` }}>
+                <div className="w-3 h-3 rounded-full bg-amber-400 border-2 border-amber-300" />
               </div>
             </div>
+            {/* Pin legend below the bar — positions are clamped so labels don't
+                overlap when List + Rec are close, and stay inside the container. */}
+            <PinLegend listPct={listPinPct} recPct={recPinPct} />
           </div>
 
           {/* Recommended offer highlight */}
@@ -862,8 +884,10 @@ function RenovationPotentialCard({ p }: { p: Property }) {
   const totalMid = estimate ? Math.round((estimate.totalLow + estimate.totalHigh) / 2) : 0;
 
   return (
+    // flex-col + justify-between lets content fill the panel naturally when the
+    // grid stretches it (instead of clustering at the center).
     <div className="glass rounded-xl p-5 flex flex-col">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-4 flex-shrink-0">
         <h3 className="text-sm font-semibold text-white flex items-center gap-2">
           <Hammer size={14} className="text-amber-500" /> Renovation Potential
         </h3>
@@ -875,44 +899,43 @@ function RenovationPotentialCard({ p }: { p: Property }) {
         </button>
       </div>
 
-      <div className="flex-1 flex flex-col justify-center">
-        {loading ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-6">
-            <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-[11px] text-slate-500">Estimating renovation cost…</p>
-          </div>
-        ) : errorMsg ? (
-          <p className="text-xs text-red-400">{errorMsg}</p>
-        ) : estimate ? (
-          <div className="space-y-3">
-            <p className="text-[10px] text-slate-500 uppercase tracking-wide">
-              Quick estimate — cosmetic refresh + kitchen + baths at {estimate.condition} condition
-            </p>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <p className="text-[10px] text-slate-500 uppercase tracking-wide">Budget (mid)</p>
-                <p className="text-lg font-bold font-mono text-amber-400">{fmt.currency(totalMid)}</p>
-                <p className="text-[10px] text-slate-500">{fmt.currency(estimate.totalLow)}–{fmt.currency(estimate.totalHigh)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-slate-500 uppercase tracking-wide">Cost / sqft</p>
-                <p className="text-lg font-bold font-mono text-white">${estimate.costPerSqftLow}–${estimate.costPerSqftHigh}</p>
-                <p className="text-[10px] text-slate-500">{fmt.num(p.sqft)} sqft</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-slate-500 uppercase tracking-wide">Projected ARV</p>
-                <p className="text-lg font-bold font-mono text-emerald-400">
-                  {estimate.arvLow ? `${fmt.compact(estimate.arvLow)}–${fmt.compact(estimate.arvHigh ?? estimate.arvLow)}` : '—'}
-                </p>
-                <p className="text-[10px] text-slate-500">+{estimate.upliftLowPct}–{estimate.upliftHighPct}% vs current</p>
-              </div>
+      {loading ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-2 py-10">
+          <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-[11px] text-slate-500">Estimating renovation cost…</p>
+        </div>
+      ) : errorMsg ? (
+        <p className="text-xs text-red-400 py-4">{errorMsg}</p>
+      ) : estimate ? (
+        <div className="flex-1 flex flex-col">
+          <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-4 flex-shrink-0">
+            Quick estimate — cosmetic refresh + kitchen + baths at {estimate.condition} condition
+          </p>
+          <div className="grid grid-cols-3 gap-4 flex-shrink-0">
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">Budget (mid)</p>
+              <p className="text-lg font-bold font-mono text-amber-400 whitespace-nowrap">{fmt.currency(totalMid)}</p>
+              <p className="text-[10px] text-slate-500 whitespace-nowrap">{fmt.currency(estimate.totalLow)}–{fmt.currency(estimate.totalHigh)}</p>
             </div>
-            <p className="text-[10px] text-slate-600 leading-relaxed">
-              For a detailed estimate with full scope selection, use the Renovation tab in Underwrite.
-            </p>
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">Cost / Sqft</p>
+              <p className="text-lg font-bold font-mono text-white whitespace-nowrap">${estimate.costPerSqftLow}–${estimate.costPerSqftHigh}</p>
+              <p className="text-[10px] text-slate-500">{fmt.num(p.sqft)} sqft</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">Projected ARV</p>
+              <p className="text-lg font-bold font-mono text-emerald-400 whitespace-nowrap">
+                {estimate.arvLow ? `${fmt.compact(estimate.arvLow)}–${fmt.compact(estimate.arvHigh ?? estimate.arvLow)}` : '—'}
+              </p>
+              <p className="text-[10px] text-slate-500">+{estimate.upliftLowPct}–{estimate.upliftHighPct}% vs current</p>
+            </div>
           </div>
-        ) : null}
-      </div>
+          {/* Footer note sits at the bottom of the panel when stretched */}
+          <p className="text-[10px] text-slate-600 leading-relaxed pt-4 mt-auto border-t border-white/5">
+            For a detailed estimate with full scope selection, use the Renovation tab in Underwrite.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

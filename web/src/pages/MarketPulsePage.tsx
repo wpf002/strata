@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { TrendingUp, TrendingDown, ChevronDown, ChevronUp, Search, Building, Star } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { clsx } from 'clsx';
-import { fmt } from '../components/UI';
+import { fmt, RegimeBadge } from '../components/UI';
 import { getSupportedMarkets } from '../api/client';
 import type { SupportedMarket } from '../types';
 
@@ -19,13 +19,6 @@ interface MarketSummaryItem {
   vacancyRate: number;
 }
 
-const REGIME_STYLES: Record<string, string> = {
-  'Hot': 'text-red-400 bg-red-400/10 border-red-400/30',
-  'Balanced': 'text-amber-400 bg-amber-500/10 border-amber-500/30',
-  'Cooling': 'text-blue-400 bg-blue-400/10 border-blue-400/30',
-  "Buyer's Market": 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30',
-};
-
 const REGIME_EXPLANATION: Record<string, string> = {
   'Hot': 'Inventory below 2 months — sellers hold the leverage. Properties move fast and over asking is common. Move decisively on strong deals.',
   'Balanced': 'Healthy supply-demand equilibrium with 2–3.5 months of inventory and positive price appreciation. Good environment for negotiated deals.',
@@ -34,35 +27,20 @@ const REGIME_EXPLANATION: Record<string, string> = {
 };
 
 
-function Metric({ label, value, valueColor, trend }: { label: string; value: string; valueColor: string; trend?: 'up' | 'down' }) {
+// Inner tile matching the look of StatCard from components/UI.tsx (uppercase
+// tracking-wider label, JetBrains Mono value). Compact + bordered so a 2x2
+// grid of these reads as a clear dashboard.
+function MetricTile({ label, value, valueColor, trend }: {
+  label: string; value: string; valueColor: string; trend?: 'up' | 'down';
+}) {
   return (
-    <div>
-      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">{label}</p>
+    <div className="rounded-lg bg-white/[0.02] border border-white/5 p-3">
+      <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider mb-1.5">{label}</p>
       <div className="flex items-center gap-1.5">
-        {trend === 'up' && <TrendingUp size={14} className="text-emerald-400 flex-shrink-0" />}
-        {trend === 'down' && <TrendingDown size={14} className="text-red-400 flex-shrink-0" />}
-        <p className={clsx('text-xl font-bold font-mono tracking-tight', valueColor)}>{value}</p>
+        {trend === 'up' && <TrendingUp size={13} className="text-emerald-400 flex-shrink-0" />}
+        {trend === 'down' && <TrendingDown size={13} className="text-red-400 flex-shrink-0" />}
+        <p className={clsx('text-lg font-bold font-mono', valueColor)}>{value}</p>
       </div>
-    </div>
-  );
-}
-
-function TrendStat({ label, pct }: { label: string; pct: number }) {
-  const positive = pct >= 0;
-  return (
-    <div className="glass rounded-xl p-3 border border-white/5">
-      <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">{label}</p>
-      <div className="flex items-center gap-2">
-        {positive ? (
-          <TrendingUp size={16} className="text-emerald-400" />
-        ) : (
-          <TrendingDown size={16} className="text-red-400" />
-        )}
-        <p className={clsx('text-lg font-bold font-mono', positive ? 'text-emerald-400' : 'text-red-400')}>
-          {positive ? '+' : ''}{pct.toFixed(1)}%
-        </p>
-      </div>
-      <p className="text-[10px] text-slate-500 mt-0.5">past 12 months</p>
     </div>
   );
 }
@@ -72,82 +50,74 @@ function MarketCard({ market, onSearch }: { market: MarketSummaryItem; onSearch:
   const positive = market.priceChange12Mo >= 0;
 
   return (
-    <div className={clsx('glass rounded-2xl border transition-all duration-200', expanded ? 'border-amber-500/30' : 'border-white/5 hover:border-white/15 hover:bg-white/[0.02]')}>
+    <div className={clsx('glass rounded-xl border transition-colors', expanded ? 'border-amber-500/30' : 'border-white/5 hover:border-white/15')}>
       <div className="p-5 cursor-pointer" onClick={() => setExpanded(e => !e)}>
-        {/* Header — city + prominent regime badge */}
-        <div className="flex items-start justify-between gap-3 mb-5">
+        {/* Header — sans-serif title matching SearchPage/PortfolioPage style */}
+        <div className="flex items-start justify-between gap-3 mb-4">
           <div className="min-w-0">
-            <h3 className="text-xl font-bold text-white tracking-tight truncate" style={{ fontFamily: "'DM Serif Display', serif" }}>
-              {market.city}
+            <h3 className="text-base font-semibold text-white truncate">
+              {market.city}, {market.state}
             </h3>
-            <p className="text-xs text-slate-500 mt-0.5 uppercase tracking-wider">{market.state}</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Live conditions · updated daily
+            </p>
           </div>
-          <span className={clsx('inline-flex items-center text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg border flex-shrink-0', REGIME_STYLES[market.regime])}>
-            {market.regime}
-          </span>
+          <RegimeBadge regime={market.regime} />
         </div>
 
-        {/* 2x2 metric grid */}
-        <div className="grid grid-cols-2 gap-x-5 gap-y-4">
-          <Metric
+        {/* 2x2 metric grid — the 4 key dimensions */}
+        <div className="grid grid-cols-2 gap-2.5">
+          <MetricTile
             label="Median Price"
             value={fmt.compact(market.medianPrice)}
             valueColor="text-white"
           />
-          <Metric
+          <MetricTile
             label="Price Change 12mo"
             value={`${positive ? '+' : ''}${market.priceChange12Mo.toFixed(1)}%`}
             valueColor={positive ? 'text-emerald-400' : 'text-red-400'}
             trend={positive ? 'up' : 'down'}
           />
-          <Metric
+          <MetricTile
             label="Inventory"
             value={`${market.inventoryMonths.toFixed(1)} mo`}
             valueColor="text-white"
           />
-          <Metric
+          <MetricTile
             label="Cap Rate Median"
             value={`${market.capRateMedian.toFixed(1)}%`}
             valueColor="text-amber-400"
           />
         </div>
 
-        <div className="flex items-center justify-end mt-4 pt-3 border-t border-white/5 text-[10px] text-slate-600 uppercase tracking-wider gap-1">
-          {expanded ? 'Hide details' : 'View details'}
+        <div className="flex items-center justify-end mt-4 text-[10px] text-slate-500 uppercase tracking-wider gap-1 hover:text-amber-400 transition-colors">
+          {expanded ? 'Hide Details' : 'View Details'}
           {expanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
         </div>
       </div>
 
       {expanded && (
-        <div className="border-t border-white/5 p-5 space-y-5">
-          {/* Trend summaries: single 12-month % change per dimension. Kept
-              deliberately honest — we don't have historical monthly series
-              wired up yet, so a synthetic area chart would be misleading. */}
-          <div>
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">12-Month Changes</p>
-            <div className="grid grid-cols-2 gap-3">
-              <TrendStat label="Median Price" pct={market.priceChange12Mo} />
-              <TrendStat label="Rent Growth" pct={market.rentGrowth12Mo} />
-            </div>
-            <p className="text-[10px] text-slate-600 mt-2">
-              Monthly history not available without a data feed — showing the 12-month change only.
-            </p>
+        <div className="border-t border-white/5 px-5 py-4 space-y-4">
+          {/* Secondary metrics */}
+          <div className="grid grid-cols-3 gap-2.5">
+            <MetricTile
+              label="Days on Market"
+              value={`${market.daysOnMarket}d`}
+              valueColor="text-white"
+            />
+            <MetricTile
+              label="Rent Growth 12mo"
+              value={`${market.rentGrowth12Mo >= 0 ? '+' : ''}${market.rentGrowth12Mo.toFixed(1)}%`}
+              valueColor={market.rentGrowth12Mo >= 0 ? 'text-emerald-400' : 'text-red-400'}
+            />
+            <MetricTile
+              label="Vacancy Rate"
+              value={`${market.vacancyRate.toFixed(1)}%`}
+              valueColor="text-white"
+            />
           </div>
 
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="glass rounded-xl p-3">
-              <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">Rent Growth 12mo</p>
-              <p className={clsx('font-bold font-mono', market.rentGrowth12Mo >= 0 ? 'text-emerald-400' : 'text-red-400')}>
-                {market.rentGrowth12Mo >= 0 ? '+' : ''}{market.rentGrowth12Mo.toFixed(1)}%
-              </p>
-            </div>
-            <div className="glass rounded-xl p-3">
-              <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">Vacancy Rate</p>
-              <p className="font-bold font-mono text-white">{market.vacancyRate.toFixed(1)}%</p>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-xl bg-white/3 border border-white/8">
+          <div className="p-3 rounded-lg bg-white/[0.02] border border-white/5">
             <p className="text-xs font-semibold text-slate-300 mb-1">Market Analysis</p>
             <p className="text-xs text-slate-400 leading-relaxed">{REGIME_EXPLANATION[market.regime]}</p>
           </div>

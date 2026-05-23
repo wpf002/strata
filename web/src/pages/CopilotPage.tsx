@@ -755,7 +755,7 @@ export default function CopilotPage() {
             <div className="w-14 h-14 rounded-2xl bg-amber-500/10 flex items-center justify-center mb-4">
               <Sparkles size={24} className="text-amber-400" />
             </div>
-            <h2 className="text-lg md:text-xl font-semibold text-white mb-2 text-center" style={{ fontFamily: "'DM Serif Display', serif" }}>What would you like to know?</h2>
+            <h2 className="text-lg md:text-xl font-semibold text-white mb-2 text-center">What would you like to know?</h2>
             <p className="text-slate-500 text-sm mb-2 text-center max-w-md">Ask about any property, market, or deal. Every answer includes confidence labels and data sources.</p>
             <p className="text-[11px] text-slate-600 mb-6 md:mb-8 text-center max-w-md">
               Copilot automatically uses your <Link to="/settings" className="text-amber-400 hover:text-amber-300 underline">strategy</Link>, target markets, and <Link to="/portfolio" className="text-amber-400 hover:text-amber-300 underline">portfolio</Link> to tailor answers. Open a property from search to load it as context, or paste details directly into the chat for one-off questions.
