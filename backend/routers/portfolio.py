@@ -18,6 +18,29 @@ from ..schemas.portfolio import (
 
 router = APIRouter(prefix="/portfolio")
 
+# Long-run residential SFH appreciation (~3% / yr). Used to estimate current
+# value when no live AVM is available — better than showing 0% appreciation for
+# every holding because purchase_price was copied into current_value at create.
+DEFAULT_APPRECIATION_RATE = 0.03
+
+
+def _estimated_current_value(h: PortfolioHolding) -> int | None:
+    """Best-effort current value when none was explicitly set.
+
+    Returns None when there's not enough signal (no purchase_date) — the response
+    schema then surfaces appreciation as null and the UI shows "—".
+    """
+    if h.current_value and h.current_value != h.purchase_price:
+        return h.current_value
+    if not h.purchase_date or not h.purchase_price:
+        return h.current_value  # might still be the seed purchase_price
+    now = datetime.now(timezone.utc)
+    purchase_dt = datetime.combine(h.purchase_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+    years = max(0.0, (now - purchase_dt).days / 365.25)
+    if years < 0.08:  # < ~1 month — no appreciation signal yet
+        return h.current_value
+    return round(h.purchase_price * ((1 + DEFAULT_APPRECIATION_RATE) ** years))
+
 
 @router.get("", response_model=PortfolioSummary)
 async def get_portfolio(
@@ -30,7 +53,7 @@ async def get_portfolio(
     holdings = result.scalars().all()
     responses = [_to_schema(h) for h in holdings]
 
-    total_value = sum(h.current_value or 0 for h in holdings)
+    total_value = sum(_estimated_current_value(h) or 0 for h in holdings)
     total_debt = sum(h.loan_balance or 0 for h in holdings)
     total_equity = total_value - total_debt
     total_cf = sum((h.monthly_rent or 0) - (h.monthly_expenses or 0) for h in holdings)
@@ -61,7 +84,10 @@ async def add_holding(
         recommendation_note=body.recommendation_note,
         purchase_price=body.purchase_price,
         purchase_date=body.purchase_date,
-        current_value=body.current_value or body.purchase_price,
+        # current_value left None when not provided so appreciation can be
+        # computed from purchase_date + market growth at read time. Forcing it
+        # to purchase_price here would lock appreciation at 0% forever.
+        current_value=body.current_value,
         loan_balance=body.loan_balance,
         monthly_rent=body.monthly_rent,
         monthly_expenses=body.monthly_expenses,
@@ -114,18 +140,22 @@ async def delete_holding(
 
 
 def _to_schema(h: PortfolioHolding) -> HoldingResponse:
-    equity = (h.current_value or 0) - (h.loan_balance or 0)
+    current_value = _estimated_current_value(h) or h.current_value
+    equity = (current_value or 0) - (h.loan_balance or 0)
     cash_flow = (h.monthly_rent or 0) - (h.monthly_expenses or 0)
     cap_rate = None
     if h.purchase_price and h.monthly_rent:
         annual_noi = cash_flow * 12
         cap_rate = round(annual_noi / h.purchase_price * 100, 2)
+    # Surface appreciation only when current_value differs meaningfully from the
+    # purchase price. Identical values mean no AVM data was set, so the response
+    # carries null and the UI renders "—" rather than a misleading 0%.
     appreciation = None
     total_return = None
-    if h.purchase_price and h.current_value:
-        appreciation = round((h.current_value - h.purchase_price) / h.purchase_price * 100, 2)
+    if h.purchase_price and current_value and current_value != h.purchase_price:
+        appreciation = round((current_value - h.purchase_price) / h.purchase_price * 100, 2)
         cumulative_cf = cash_flow * 12  # simplified — full calc needs purchase date
-        total_return = round(((h.current_value - h.purchase_price + cumulative_cf) / h.purchase_price) * 100, 2)
+        total_return = round(((current_value - h.purchase_price + cumulative_cf) / h.purchase_price) * 100, 2)
 
     return HoldingResponse(
         id=str(h.id),
@@ -135,7 +165,7 @@ def _to_schema(h: PortfolioHolding) -> HoldingResponse:
         status=h.status or "Active",
         purchase_price=h.purchase_price,
         purchase_date=h.purchase_date,
-        current_value=h.current_value,
+        current_value=current_value,
         loan_balance=h.loan_balance,
         equity=equity,
         monthly_rent=h.monthly_rent,

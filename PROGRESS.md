@@ -1,5 +1,28 @@
 # STRATA — Progress Log
 
+## Sprint 5 — May 2026 — Bug-fix Pass
+
+### Bug Fixes
+
+- **Watchlist loading** — replaced blocking `Promise.allSettled` with progressive hydration: each `/properties/{id}` lookup has a 12s timeout, results render as they arrive, and the loading state always clears. A single slow RapidAPI lookup no longer freezes the whole page.
+- **Comparison modal** — RapidAPI properties now get meaningful values instead of zeros/nulls. Fair value is anchored around list price but skewed by the deal score (so `priceVsFairValue` actually reflects under/over-priced listings). `daysOnMarket` falls back to `list_date` when missing. `neighborhoodScore` is derived from zip+deal+risk so it's no longer null. The modal also renders `—` when any field is genuinely unavailable rather than `0/100` or `0d`.
+- **Portfolio appreciation** — stopped auto-copying `purchase_price` into `current_value` at create. The `_to_schema` serializer now returns `appreciation`/`totalReturn` as `null` when there's no AVM data, and falls back to a time-based 3%/yr estimate when `purchase_date` is set so existing holdings show realistic numbers. UI renders `+X.X%` green / `-X.X%` red / `—` accordingly.
+- **Intelligence data audit** — added small `DataSource` chips on Fair Value, Rent Estimate, FEMA flood, and Nearby Schools cards (labels like "Source: RentCast · Live", "Source: FEMA NFHL · Current", "Source: NCES"). Neighborhood Score and DOM gracefully render `—` when not available.
+
+### UI Polish
+
+- **Fair value ranges** stay on one line everywhere (`whitespace-nowrap` on search list, search sidebar, comparison modal, intelligence page).
+- **Cash flow** on Portfolio page uses compact formatting + `whitespace-nowrap` in StatCards, the holding sidebar, and the Property Performance metric rows.
+- **Market Pulse cards** redesigned: DM Serif Display city header, prominent regime badge, 2×2 metric grid (Median Price · Price Change 12mo · Inventory · Cap Rate Median) with trend arrows.
+- **Copilot output** — new markdown renderer parses headings, bold/italic, bullets and numbered lists, wraps currency and percentages in JetBrains Mono, splits trailing confidence/disclaimer paragraphs into a muted footer with a divider, and increased bubble padding so prose doesn't feel cramped.
+- **Demo clients seed** — `GET /clients` seeds 4 realistic clients (Marcus Johnson / BRRRR, Sarah Chen / LTR, David Reyes / Fix & Flip, Priya Patel / STR) the first time the demo user (wfoti71992@gmail.com) hits the endpoint with an empty client list. Idempotent — only fires when the table is empty for that user.
+
+### Tests + Build
+
+- `npx tsc -b --noEmit` → 0 errors
+- `cd web && npx vitest run` → 81/81 passing
+- `cd backend && pytest -q` → 107/107 passing
+
 ## Sprint 2 — April 2026
 
 ### Task 1 — Intelligence Page Live Wiring

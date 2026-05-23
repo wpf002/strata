@@ -28,6 +28,72 @@ router = APIRouter(prefix="/clients")
 
 ACTIVITY_TYPES = {"viewed", "saved", "shared", "underwritten", "copilot_asked", "reported"}
 
+# Email allowed to receive the demo-client seed. Idempotent — only fires once
+# per user when their clients table is empty, never overwrites existing data.
+DEMO_USER_EMAILS = {"wfoti71992@gmail.com"}
+
+DEMO_CLIENTS_SEED = [
+    {
+        "name": "Marcus Johnson",
+        "email": "marcus.johnson@example.com",
+        "phone": "(214) 555-0142",
+        "strategy": "BRRRR",
+        "min_price": 150_000,
+        "max_price": 280_000,
+        "target_markets": ["Dallas, TX", "Fort Worth, TX"],
+        "property_types": ["Single Family"],
+        "notes": "Looking for distressed SFR, prefers 3/2. Cash buyer, can close in 14 days.",
+    },
+    {
+        "name": "Sarah Chen",
+        "email": "sarah.chen@example.com",
+        "phone": "(469) 555-0271",
+        "strategy": "LTR",
+        "min_price": 250_000,
+        "max_price": 450_000,
+        "target_markets": ["Dallas, TX", "Frisco, TX"],
+        "property_types": ["Single Family", "Townhouse"],
+        "notes": "First investment property — conservative underwriting. Prefers newer builds, low maintenance.",
+    },
+    {
+        "name": "David Reyes",
+        "email": "david.reyes@example.com",
+        "phone": "(972) 555-0388",
+        "strategy": "Fix & Flip",
+        "min_price": 100_000,
+        "max_price": 200_000,
+        "target_markets": ["Dallas, TX", "Mesquite, TX"],
+        "property_types": ["Single Family"],
+        "notes": "Experienced flipper — 3–4 deals per year. Has a full crew and hard-money line.",
+    },
+    {
+        "name": "Priya Patel",
+        "email": "priya.patel@example.com",
+        "phone": "(214) 555-0419",
+        "strategy": "STR",
+        "min_price": 300_000,
+        "max_price": 500_000,
+        "target_markets": ["Dallas, TX", "Arlington, TX"],
+        "property_types": ["Single Family", "Condo"],
+        "notes": "Active Airbnb host scaling to 3+ properties. Targets neighborhoods with no STR restrictions.",
+    },
+]
+
+
+async def _maybe_seed_demo_clients(db: AsyncSession, user: User) -> None:
+    """Seed demo clients exactly once for the demo user. Skips silently when the
+    user is not a demo user or already has clients — never overwrites data."""
+    if (user.email or "").lower() not in DEMO_USER_EMAILS:
+        return
+    existing = await db.execute(
+        select(Client.id).where(Client.user_id == user.id).limit(1)
+    )
+    if existing.scalar_one_or_none() is not None:
+        return
+    for seed in DEMO_CLIENTS_SEED:
+        db.add(Client(user_id=user.id, **seed))
+    await db.flush()
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _to_schema(c: Client) -> ClientResponse:
@@ -69,6 +135,7 @@ async def list_clients(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await _maybe_seed_demo_clients(db, current_user)
     result = await db.execute(
         select(Client)
         .where(Client.user_id == current_user.id)

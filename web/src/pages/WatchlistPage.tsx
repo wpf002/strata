@@ -9,6 +9,19 @@ import type { Watchlist } from '../api/client';
 import type { Property } from '../types';
 import { ScoreBadge, RiskBadge, ConfidencePill, fmt } from '../components/UI';
 
+// Per-property hydration cap. The /properties/{id} endpoint enriches with flood/
+// schools/rent, which can be slow on cold cache — without a ceiling, one stuck
+// fetch holds the whole list. 12s is generous but bounded.
+const HYDRATE_TIMEOUT_MS = 12_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('timeout')), ms);
+    p.then(v => { clearTimeout(t); resolve(v); },
+         e => { clearTimeout(t); reject(e); });
+  });
+}
+
 export default function WatchlistPage() {
   const navigate = useNavigate();
   const [list, setList] = useState<Watchlist | null>(null);
@@ -20,30 +33,41 @@ export default function WatchlistPage() {
     setLoading(true);
     setProperties([]);
     setMissingIds([]);
+    let lists: Watchlist[] = [];
     try {
-      const lists = await getWatchlists();
-      const primary = lists.find(l => l.name === 'My Watchlist') ?? lists[0];
-      setList(primary ?? null);
-      if (!primary || primary.propertyIds.length === 0) {
-        return;
-      }
-      // Hydrate each id; tolerate 404s for ids that no longer resolve.
-      const results = await Promise.allSettled(
-        primary.propertyIds.map(id => getProperty(id)),
-      );
-      const ok: Property[] = [];
-      const missing: string[] = [];
-      results.forEach((r, i) => {
-        if (r.status === 'fulfilled') ok.push(r.value);
-        else missing.push(primary.propertyIds[i]);
-      });
-      setProperties(ok);
-      setMissingIds(missing);
+      lists = await getWatchlists();
     } catch {
       setList(null);
-    } finally {
       setLoading(false);
+      return;
     }
+    const primary = lists.find(l => l.name === 'My Watchlist') ?? lists[0];
+    setList(primary ?? null);
+    if (!primary || primary.propertyIds.length === 0) {
+      setLoading(false);
+      return;
+    }
+
+    // Hydrate each id progressively — render results as they arrive so one
+    // slow lookup never holds back the whole page. Each fetch has its own
+    // timeout cap; on timeout/404 the id goes into the "missing" pile.
+    const ids = [...primary.propertyIds];
+    let firstResolved = false;
+    await Promise.all(ids.map(async (id) => {
+      try {
+        const prop = await withTimeout(getProperty(id), HYDRATE_TIMEOUT_MS);
+        setProperties(prev => [...prev, prop]);
+      } catch {
+        setMissingIds(prev => [...prev, id]);
+      } finally {
+        if (!firstResolved) {
+          firstResolved = true;
+          setLoading(false);
+        }
+      }
+    }));
+    // Safety: if every fetch failed before any resolved, ensure loading clears.
+    setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -83,14 +107,14 @@ export default function WatchlistPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 md:py-5">
-        {loading ? (
+        {loading && properties.length === 0 ? (
           <div className="space-y-3">
             {[1, 2, 3].map(i => <div key={i} className="glass rounded-xl h-36 animate-pulse" />)}
           </div>
-        ) : properties.length === 0 ? (
+        ) : properties.length === 0 && missingIds.length === 0 ? (
           <div className="glass rounded-2xl p-10 text-center border border-white/5 max-w-xl mx-auto">
             <Star size={28} className="text-slate-600 mx-auto mb-3" />
-            <p className="text-base font-semibold text-white mb-1">No watchlisted properties yet</p>
+            <p className="text-base font-semibold text-white mb-1">No Watchlisted Properties Yet</p>
             <p className="text-sm text-slate-500 mb-5">
               Tap the <Star size={13} className="inline align-text-bottom" /> Watch button on any property card to save it here.
             </p>
@@ -159,8 +183,8 @@ function WatchlistCard({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-2 mb-3">
           <Stat label="Price" value={fmt.compact(p.price)} />
           <Stat label="Cap Rate" value={fmt.pct(p.capRate)} highlight />
-          <Stat label="Cash Flow" value={`${p.cashFlow >= 0 ? '+' : ''}${fmt.currency(p.cashFlow)}/mo`} positive={p.cashFlow >= 0} />
-          <Stat label="DOM" value={`${p.daysOnMarket}d`} />
+          <Stat label="Cash Flow" value={`${p.cashFlow >= 0 ? '+' : ''}${fmt.compact(p.cashFlow)}/mo`} positive={p.cashFlow >= 0} />
+          <Stat label="DOM" value={p.daysOnMarket > 0 ? `${p.daysOnMarket}d` : '—'} />
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <ConfidencePill level={p.valuationConfidence} />
@@ -189,9 +213,9 @@ function WatchlistCard({
 function Stat({ label, value, positive, highlight }: { label: string; value: string; positive?: boolean; highlight?: boolean }) {
   const color = positive === true ? 'text-emerald-400' : positive === false ? 'text-red-400' : highlight ? 'text-amber-400' : 'text-white';
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-[10px] text-slate-500 mb-0.5">{label}</p>
-      <p className={clsx('text-sm font-semibold font-mono', color)}>{value}</p>
+      <p className={clsx('text-sm font-semibold font-mono whitespace-nowrap', color)}>{value}</p>
     </div>
   );
 }

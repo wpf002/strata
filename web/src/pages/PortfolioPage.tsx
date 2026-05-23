@@ -760,11 +760,21 @@ export default function PortfolioPage() {
         <div className="w-full md:w-[360px] flex-shrink-0 border-r border-white/5 flex flex-col overflow-hidden max-h-[50vh] md:max-h-none border-b md:border-b-0">
           <div className="px-4 py-4 border-b border-white/5 flex-shrink-0 space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <StatCard label="Total Value" value={fmt.compact(portfolio.totalValue)} sub={`+${fmt.pct(((portfolio.totalValue - portfolio.holdings.reduce((s,h)=>s+h.purchasePrice,0)) / portfolio.holdings.reduce((s,h)=>s+h.purchasePrice,0)) * 100)} since purchase`} color="gold" />
+              <StatCard
+                label="Total Value"
+                value={fmt.compact(portfolio.totalValue)}
+                sub={(() => {
+                  const totalPurchase = portfolio.holdings.reduce((s, h) => s + h.purchasePrice, 0);
+                  if (!totalPurchase) return 'since purchase';
+                  const pct = ((portfolio.totalValue - totalPurchase) / totalPurchase) * 100;
+                  return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% since purchase`;
+                })()}
+                color="gold"
+              />
               <StatCard label="Total Equity" value={fmt.compact(portfolio.totalEquity)} sub={`${fmt.pct((portfolio.totalEquity / portfolio.totalValue) * 100)} equity`} color="green" />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <StatCard label="Monthly Cash Flow" value={`+${fmt.currency(portfolio.totalCashFlow)}`} sub="all properties" color="green" />
+              <StatCard label="Monthly Cash Flow" value={`${portfolio.totalCashFlow >= 0 ? '+' : ''}${fmt.compact(portfolio.totalCashFlow)}`} sub="all properties" color="green" />
               <StatCard label="Total Debt" value={fmt.compact(portfolio.totalDebt)} sub="outstanding" />
             </div>
           </div>
@@ -777,8 +787,8 @@ export default function PortfolioPage() {
                     <p className="text-sm font-semibold text-white truncate">{h.address.split(',')[0]}</p>
                     <p className="text-xs text-slate-500 truncate">{h.address.split(',').slice(1).join(',').trim()}</p>
                     <div className="flex items-center gap-3 mt-2">
-                      <div><p className="text-[10px] text-slate-500">Equity</p><p className="text-sm font-bold font-mono text-white">{fmt.compact(h.equity)}</p></div>
-                      <div><p className="text-[10px] text-slate-500">Cash Flow</p><p className={clsx('text-sm font-bold font-mono', h.cashFlow >= 0 ? 'text-emerald-400' : 'text-red-400')}>{h.cashFlow >= 0 ? '+' : ''}{fmt.currency(h.cashFlow)}</p></div>
+                      <div><p className="text-[10px] text-slate-500">Equity</p><p className="text-sm font-bold font-mono text-white whitespace-nowrap">{fmt.compact(h.equity)}</p></div>
+                      <div><p className="text-[10px] text-slate-500">Cash Flow</p><p className={clsx('text-sm font-bold font-mono whitespace-nowrap', h.cashFlow >= 0 ? 'text-emerald-400' : 'text-red-400')}>{h.cashFlow >= 0 ? '+' : ''}{fmt.compact(h.cashFlow)}</p></div>
                       <div className="ml-auto flex items-center gap-1">
                         <RecBadge rec={h.recommendation} />
                         <button onClick={e => { e.stopPropagation(); setEditingHolding(h); }} className="p-1 text-slate-500 hover:text-amber-400 transition-colors" aria-label="Edit actuals"><Building2 size={12} /></button>
@@ -802,9 +812,9 @@ export default function PortfolioPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 mb-5">
-            <StatCard label="Current Value" value={fmt.compact(active.currentValue)} sub={`Purchased ${fmt.compact(active.purchasePrice)}`} color="gold" trend={active.appreciation} />
+            <StatCard label="Current Value" value={fmt.compact(active.currentValue)} sub={`Purchased ${fmt.compact(active.purchasePrice)}`} color="gold" trend={active.appreciation ?? undefined} />
             <StatCard label="Equity" value={fmt.compact(active.equity)} sub={`${fmt.pct((active.equity / active.currentValue) * 100)} equity`} color="green" />
-            <StatCard label="Total Return" value={fmt.pct(active.totalReturn)} sub="appreciation + cash flow" color="green" />
+            <StatCard label="Total Return" value={active.totalReturn !== null ? fmt.pct(active.totalReturn) : '—'} sub="appreciation + cash flow" color="green" />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5 mb-5">
@@ -834,15 +844,15 @@ export default function PortfolioPage() {
               </div>
               <MetricRow label="Purchase Price" value={fmt.currency(active.purchasePrice)} />
               <MetricRow label="Current Value" value={fmt.currency(active.currentValue)} highlight />
-              <MetricRow label="Appreciation" value={`+${fmt.pct(active.appreciation)}`} />
+              <MetricRow label="Appreciation" value={appreciationLabel(active.appreciation)} />
               <MetricRow label="Loan Balance" value={fmt.currency(active.loanBalance)} />
               <MetricRow label="Equity" value={fmt.currency(active.equity)} highlight />
               <MetricRow label="Monthly Rent" value={fmt.currency(active.monthlyRent)} />
               <MetricRow label="Monthly Expenses" value={fmt.currency(active.monthlyExpenses)} />
-              <MetricRow label="Net Cash Flow" value={`+${fmt.currency(active.cashFlow)}/mo`} highlight />
+              <MetricRow label="Net Cash Flow" value={`${active.cashFlow >= 0 ? '+' : ''}${fmt.compact(active.cashFlow)}/mo`} highlight />
               <MetricRow label="Cap Rate" value={fmt.pct(active.capRate)} />
-              <MetricRow label="Total Return" value={fmt.pct(active.totalReturn)} />
-              <MetricRow label="Annual Cash Flow" value={`+${fmt.currency(active.cashFlow * 12)}`} />
+              <MetricRow label="Total Return" value={active.totalReturn !== null ? fmt.pct(active.totalReturn) : '—'} />
+              <MetricRow label="Annual Cash Flow" value={`${active.cashFlow >= 0 ? '+' : ''}${fmt.compact(active.cashFlow * 12)}`} />
               <div className="mt-4">
                 <p className="text-xs text-slate-500 mb-1">STRATA Recommendation</p>
                 <p className="text-sm text-white">{active.recommendationNote}</p>
@@ -890,6 +900,12 @@ export default function PortfolioPage() {
 
     </div>
   );
+}
+
+function appreciationLabel(pct: number | null): string {
+  if (pct === null || !Number.isFinite(pct)) return '—';
+  const sign = pct > 0 ? '+' : pct < 0 ? '−' : '';
+  return `${sign}${Math.abs(pct).toFixed(1)}%`;
 }
 
 function RecBadge({ rec }: { rec: PortfolioHolding['recommendation'] }) {

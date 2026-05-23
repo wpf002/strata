@@ -34,6 +34,19 @@ const REGIME_EXPLANATION: Record<string, string> = {
 };
 
 
+function Metric({ label, value, valueColor, trend }: { label: string; value: string; valueColor: string; trend?: 'up' | 'down' }) {
+  return (
+    <div>
+      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">{label}</p>
+      <div className="flex items-center gap-1.5">
+        {trend === 'up' && <TrendingUp size={14} className="text-emerald-400 flex-shrink-0" />}
+        {trend === 'down' && <TrendingDown size={14} className="text-red-400 flex-shrink-0" />}
+        <p className={clsx('text-xl font-bold font-mono tracking-tight', valueColor)}>{value}</p>
+      </div>
+    </div>
+  );
+}
+
 function TrendStat({ label, pct }: { label: string; pct: number }) {
   const positive = pct >= 0;
   return (
@@ -59,41 +72,49 @@ function MarketCard({ market, onSearch }: { market: MarketSummaryItem; onSearch:
   const positive = market.priceChange12Mo >= 0;
 
   return (
-    <div className={clsx('glass rounded-2xl border transition-all duration-200', expanded ? 'border-amber-500/30' : 'border-white/5 hover:border-white/15')}>
+    <div className={clsx('glass rounded-2xl border transition-all duration-200', expanded ? 'border-amber-500/30' : 'border-white/5 hover:border-white/15 hover:bg-white/[0.02]')}>
       <div className="p-5 cursor-pointer" onClick={() => setExpanded(e => !e)}>
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <h3 className="text-base font-semibold text-white">{market.city}, {market.state}</h3>
-            <span className={clsx('inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded border mt-1', REGIME_STYLES[market.regime])}>
-              {market.regime}
-            </span>
+        {/* Header — city + prominent regime badge */}
+        <div className="flex items-start justify-between gap-3 mb-5">
+          <div className="min-w-0">
+            <h3 className="text-xl font-bold text-white tracking-tight truncate" style={{ fontFamily: "'DM Serif Display', serif" }}>
+              {market.city}
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5 uppercase tracking-wider">{market.state}</p>
           </div>
-          <div className="text-right">
-            <p className="text-xl font-bold font-mono text-white">{fmt.compact(market.medianPrice)}</p>
-            <div className={clsx('flex items-center justify-end gap-1 text-sm font-mono font-semibold', positive ? 'text-emerald-400' : 'text-red-400')}>
-              {positive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-              {positive ? '+' : ''}{market.priceChange12Mo.toFixed(1)}% 12mo
-            </div>
-          </div>
+          <span className={clsx('inline-flex items-center text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg border flex-shrink-0', REGIME_STYLES[market.regime])}>
+            {market.regime}
+          </span>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
-          <div className="glass rounded-xl p-3">
-            <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">Cap Rate</p>
-            <p className="text-base font-bold font-mono text-amber-400">{market.capRateMedian.toFixed(1)}%</p>
-          </div>
-          <div className="glass rounded-xl p-3">
-            <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">Inventory</p>
-            <p className="text-base font-bold font-mono text-white">{market.inventoryMonths.toFixed(1)} mo</p>
-          </div>
-          <div className="glass rounded-xl p-3">
-            <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">DOM</p>
-            <p className="text-base font-bold font-mono text-white">{market.daysOnMarket}d</p>
-          </div>
+        {/* 2x2 metric grid */}
+        <div className="grid grid-cols-2 gap-x-5 gap-y-4">
+          <Metric
+            label="Median Price"
+            value={fmt.compact(market.medianPrice)}
+            valueColor="text-white"
+          />
+          <Metric
+            label="Price Change 12mo"
+            value={`${positive ? '+' : ''}${market.priceChange12Mo.toFixed(1)}%`}
+            valueColor={positive ? 'text-emerald-400' : 'text-red-400'}
+            trend={positive ? 'up' : 'down'}
+          />
+          <Metric
+            label="Inventory"
+            value={`${market.inventoryMonths.toFixed(1)} mo`}
+            valueColor="text-white"
+          />
+          <Metric
+            label="Cap Rate Median"
+            value={`${market.capRateMedian.toFixed(1)}%`}
+            valueColor="text-amber-400"
+          />
         </div>
 
-        <div className="flex justify-end mt-3">
-          {expanded ? <ChevronUp size={16} className="text-slate-500" /> : <ChevronDown size={16} className="text-slate-500" />}
+        <div className="flex items-center justify-end mt-4 pt-3 border-t border-white/5 text-[10px] text-slate-600 uppercase tracking-wider gap-1">
+          {expanded ? 'Hide details' : 'View details'}
+          {expanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
         </div>
       </div>
 

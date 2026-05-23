@@ -540,17 +540,65 @@ export default function CopilotPage() {
     }
   };
 
-  const renderContent = (content: string) => ({
-    __html: content
-      .replace(/^### (.*?)$/gm, '<p class="text-sm font-semibold text-white mt-3 mb-0.5">$1</p>')
-      .replace(/^## (.*?)$/gm, '<p class="text-sm font-bold text-amber-400 mt-4 mb-1 tracking-wide uppercase">$1</p>')
-      .replace(/^# (.*?)$/gm, '<p class="text-base font-bold text-white mt-4 mb-1">$1</p>')
-      .replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em class="text-slate-400 text-xs">$1</em>')
-      .replace(/^- (.*?)$/gm, '<div class="flex gap-2 my-1"><span class="text-amber-400 flex-shrink-0">·</span><span class="text-slate-300">$1</span></div>')
-      .replace(/\n\n/g, '<div class="h-2"></div>')
-      .replace(/\n/g, '<br/>'),
-  });
+  // Strip a Claude response into HTML the chat bubble can render. We split out
+  // the trailing confidence/disclaimer paragraph (if present) so it can be
+  // visually de-emphasized — readers should focus on the substance, not the
+  // boilerplate. Numbers/currency get JetBrains Mono via the .copilot-num span.
+  const renderContent = (content: string) => {
+    const disclaimerRe = /\n\n(_[\s\S]+_|\*[^*]+\*|Confidence:[\s\S]+|Disclaimer:[\s\S]+)$/;
+    const dmatch = content.match(disclaimerRe);
+    const body = dmatch ? content.slice(0, dmatch.index) : content;
+    const trail = dmatch ? dmatch[1].replace(/^[_*]|[_*]$/g, '').trim() : '';
+
+    const renderInline = (s: string) =>
+      s
+        .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em class="text-slate-400">$1</em>')
+        // Wrap currency + percentage tokens in JetBrains Mono.
+        .replace(/(\$\d[\d,]*(?:\.\d+)?[KkMmBb]?|\b\d+(?:\.\d+)?%|\b\d{1,3}(?:,\d{3})+)/g,
+                 '<span class="font-mono text-white">$1</span>');
+
+    const lines = body.split('\n');
+    const out: string[] = [];
+    let inList = false;
+    const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+
+    for (const raw of lines) {
+      const line = raw.trimEnd();
+      if (!line.trim()) { closeList(); out.push('<div class="h-2"></div>'); continue; }
+      // Headings
+      let m = line.match(/^### (.*)$/);
+      if (m) { closeList(); out.push(`<p class="text-sm font-semibold text-white mt-4 mb-1.5">${renderInline(m[1])}</p>`); continue; }
+      m = line.match(/^## (.*)$/);
+      if (m) { closeList(); out.push(`<p class="text-xs font-bold text-amber-400 mt-4 mb-2 tracking-widest uppercase">${renderInline(m[1])}</p>`); continue; }
+      m = line.match(/^# (.*)$/);
+      if (m) { closeList(); out.push(`<p class="text-base font-bold text-white mt-4 mb-2">${renderInline(m[1])}</p>`); continue; }
+      // Bullets
+      m = line.match(/^[-*] (.*)$/);
+      if (m) {
+        if (!inList) { out.push('<ul class="space-y-1.5 my-2 ml-1">'); inList = true; }
+        out.push(`<li class="flex gap-2.5 leading-relaxed"><span class="text-amber-400 flex-shrink-0 mt-1">•</span><span class="text-slate-200 flex-1">${renderInline(m[1])}</span></li>`);
+        continue;
+      }
+      // Numbered list — convert to bullets for visual consistency
+      m = line.match(/^\d+\.\s+(.*)$/);
+      if (m) {
+        if (!inList) { out.push('<ul class="space-y-1.5 my-2 ml-1">'); inList = true; }
+        out.push(`<li class="flex gap-2.5 leading-relaxed"><span class="text-amber-400 flex-shrink-0 mt-1">•</span><span class="text-slate-200 flex-1">${renderInline(m[1])}</span></li>`);
+        continue;
+      }
+      // Paragraph
+      closeList();
+      out.push(`<p class="text-slate-200 leading-relaxed my-1.5">${renderInline(line)}</p>`);
+    }
+    closeList();
+
+    if (trail) {
+      out.push(`<p class="text-[11px] text-slate-500 italic mt-4 pt-3 border-t border-white/5 leading-relaxed">${renderInline(trail)}</p>`);
+    }
+
+    return { __html: out.join('') };
+  };
 
   return (
     <div className="flex flex-col h-full page-fade">
@@ -727,9 +775,9 @@ export default function CopilotPage() {
                 <div className={clsx('w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold mt-1', m.role === 'user' ? 'bg-navy-700 text-amber-400' : 'bg-amber-500/15 text-amber-400')}>
                   {m.role === 'user' ? 'W' : <Bot size={14} />}
                 </div>
-                <div className={clsx('rounded-xl px-4 py-3 max-w-[85%]', m.role === 'user' ? 'glass-dark' : 'glass')}>
+                <div className={clsx('rounded-2xl px-5 py-4 max-w-[85%]', m.role === 'user' ? 'glass-dark' : 'glass')}>
                   {m.content ? (
-                    <div className="text-sm text-slate-200 leading-relaxed" dangerouslySetInnerHTML={renderContent(m.content)} />
+                    <div className="text-sm leading-relaxed copilot-msg" dangerouslySetInnerHTML={renderContent(m.content)} />
                   ) : (
                     <div className="flex gap-1 items-center h-5">
                       {[0,1,2].map(j => <div key={j} className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: `${j * 0.15}s` }} />)}

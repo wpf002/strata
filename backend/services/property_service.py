@@ -509,9 +509,12 @@ async def _fetch_rapidapi_property(
         cap_rate = round((noi_mo * 12 / price * 100) if price > 0 else 0, 1)
         deal_score = _compute_deal_score(price, cap_rate, sqft, beds)
         risk_score = _compute_risk_score(year_built, price, sqft)
-        fair_value_low = round(price * 0.93)
-        fair_value_high = round(price * 1.07)
-        price_vs_fv = round(((price - (fair_value_low + fair_value_high) / 2) / ((fair_value_low + fair_value_high) / 2)) * 100, 1)
+        fv_mid_pct = 1.0 + ((50 - deal_score) / 100) * 0.10
+        fair_value_mid = max(1, round(price * fv_mid_pct))
+        fair_value_low = round(fair_value_mid * 0.96)
+        fair_value_high = round(fair_value_mid * 1.04)
+        price_vs_fv = round(((price - fair_value_mid) / fair_value_mid) * 100, 1)
+        neighborhood_score = _neighborhood_score_estimate(zip_val, deal_score, risk_score)
         down = price * 0.25
         loan = price - down
         mr = 7.25 / 100 / 12
@@ -557,6 +560,7 @@ async def _fetch_rapidapi_property(
                     "market_regime": "Balanced",
                     "image": image_href,
                     "risk_flags": [],
+                    "neighborhood_score": neighborhood_score,
                 },
             )
             db.add(new_prop)
@@ -577,7 +581,7 @@ async def _fetch_rapidapi_property(
             year_built=year_built,
             type=desc.get("type") or "Single Family",
             status=home.get("status") or "Active",
-            days_on_market=home.get("days_on_market") or 0,
+            days_on_market=(home.get("days_on_market") or 0) or _days_since_list_date(home.get("list_date")),
             deal_score=deal_score,
             risk_score=risk_score,
             cap_rate=cap_rate,
@@ -593,7 +597,7 @@ async def _fetch_rapidapi_property(
             price_vs_fair_value=price_vs_fv,
             strategy_fit=round(deal_score * 0.9),
             neighborhood=None,
-            neighborhood_score=None,
+            neighborhood_score=neighborhood_score,
             market_regime="Balanced",
             risk_flags=[],
             image=image_href,
@@ -724,7 +728,13 @@ async def _search_rapidapi(
             lng = float(coord.get("lon") or 0) or None
             image_href = _upgrade_photo_url((item.get("primary_photo") or {}).get("href"))
             status = item.get("status") or "Active"
-            listed_at = item.get("list_date") or ""
+
+            # Days on market — RapidAPI sometimes ships days_on_market=0 even on
+            # listings that have been up for weeks. Fall back to list_date when
+            # the field is empty so the comparison modal and filters get a real
+            # number.
+            dom_raw = item.get("days_on_market") or 0
+            days_on_market = dom_raw if dom_raw > 0 else _days_since_list_date(item.get("list_date"))
 
             # Basic financial estimates
             rent_mid = round(sqft * 1.2 + beds * 80 + baths * 60)
@@ -734,9 +744,17 @@ async def _search_rapidapi(
             cap_rate = round((noi_mo * 12 / price * 100) if price > 0 else 0, 1)
             deal_score = _compute_deal_score(price, cap_rate, sqft, beds)
             risk_score = _compute_risk_score(year_built, price, sqft)
-            fair_value_low = round(price * 0.93)
-            fair_value_high = round(price * 1.07)
-            price_vs_fv = round(((price - (fair_value_low + fair_value_high) / 2) / ((fair_value_low + fair_value_high) / 2)) * 100, 1)
+
+            # Fair value range — anchor around list price but skew by deal score
+            # so price_vs_fair_value reflects whether the deal is over or under
+            # priced. A high deal score (cheap for the area) lands below list
+            # price; a low score lands above.
+            fv_mid_pct = 1.0 + ((50 - deal_score) / 100) * 0.10   # ±5% range
+            fair_value_mid = max(1, round(price * fv_mid_pct))
+            fair_value_low = round(fair_value_mid * 0.96)
+            fair_value_high = round(fair_value_mid * 1.04)
+            price_vs_fv = round(((price - fair_value_mid) / fair_value_mid) * 100, 1)
+            neighborhood_score = _neighborhood_score_estimate(zip_val, deal_score, risk_score)
             down = price * 0.25
             loan = price - down
             mr = 7.25 / 100 / 12
@@ -759,7 +777,7 @@ async def _search_rapidapi(
                 year_built=year_built,
                 type=desc.get("type") or "Single Family",
                 status=status,
-                days_on_market=item.get("days_on_market") or 0,
+                days_on_market=days_on_market,
                 deal_score=deal_score,
                 risk_score=risk_score,
                 cap_rate=cap_rate,
@@ -775,7 +793,7 @@ async def _search_rapidapi(
                 price_vs_fair_value=price_vs_fv,
                 strategy_fit=round(deal_score * 0.9),
                 neighborhood=None,
-                neighborhood_score=None,
+                neighborhood_score=neighborhood_score,
                 market_regime="Balanced",
                 risk_flags=[],
                 image=image_href,
@@ -860,3 +878,36 @@ def _compute_risk_score(year_built: int | None, price: float, sqft: int) -> floa
     if price_per_sqft > 400:
         score += 15
     return round(max(0, min(100, score)), 1)
+
+
+def _days_since_list_date(list_date: str | None) -> int:
+    """Best-effort DOM from RapidAPI's list_date when days_on_market is missing.
+    Accepts ISO 8601 ("2026-05-01T00:00:00Z") and date-only ("2026-05-01") inputs."""
+    if not list_date:
+        return 0
+    try:
+        # Normalize Z suffix to +00:00 for fromisoformat
+        ds = list_date.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(ds)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        delta = (datetime.now(timezone.utc) - dt).days
+        return max(0, delta)
+    except (ValueError, TypeError):
+        return 0
+
+
+def _neighborhood_score_estimate(zip_val: str, deal_score: float, risk_score: float) -> int:
+    """RapidAPI doesn't return a neighborhood-quality field. Derive a 0–100
+    estimate so the Intelligence page, Comparison modal, and STR fit calc have
+    something usable. Anchored at 65, nudged up by deal score (better deal often
+    means better-priced area) and down by risk. Per-zip variance prevents every
+    listing in a market from showing the same number."""
+    if not zip_val:
+        zip_hash = 0
+    else:
+        zip_hash = int(hashlib.sha1(zip_val.encode()).hexdigest(), 16) % 20  # 0–19
+    base = 60 + zip_hash // 2          # 60–69 per zip
+    base += int((deal_score - 50) * 0.20)  # ±10
+    base -= int((risk_score - 30) * 0.10)  # ±7
+    return max(40, min(95, base))

@@ -857,7 +857,7 @@ function PropertyCard({ property: p, index: i, isWatched, isHighlighted, isCompa
             <div className="md:hidden mt-3 pt-3 border-t border-white/5 flex items-center gap-2">
               <div className="flex-1 min-w-0">
                 <p className="text-[10px] text-slate-500">Fair Value</p>
-                <p className="text-xs font-mono text-white truncate">{fmt.compact(p.fairValueLow)}–{fmt.compact(p.fairValueHigh)}</p>
+                <p className="text-xs font-mono text-white whitespace-nowrap">{fmt.compact(p.fairValueLow)}–{fmt.compact(p.fairValueHigh)}</p>
                 <p className={clsx('text-[10px] font-semibold', p.priceVsFairValue <= 0 ? 'text-emerald-400' : 'text-red-400')}>
                   {p.priceVsFairValue <= 0 ? <ChevronDown size={12} className="inline" /> : <ChevronUp size={12} className="inline" />} {Math.abs(p.priceVsFairValue).toFixed(1)}% vs est.
                 </p>
@@ -876,7 +876,7 @@ function PropertyCard({ property: p, index: i, isWatched, isHighlighted, isCompa
           <div className="hidden md:flex w-32 flex-shrink-0 flex-col items-center justify-center bg-navy-900/40 border-l border-white/5 gap-2 px-3 py-4">
             <div className="text-center">
               <p className="text-[10px] text-slate-500 mb-0.5">Fair Value</p>
-              <p className="text-xs font-mono text-white">{fmt.compact(p.fairValueLow)}–{fmt.compact(p.fairValueHigh)}</p>
+              <p className="text-xs font-mono text-white whitespace-nowrap">{fmt.compact(p.fairValueLow)}–{fmt.compact(p.fairValueHigh)}</p>
               <p className={clsx('text-xs font-semibold mt-0.5', p.priceVsFairValue <= 0 ? 'text-emerald-400' : 'text-red-400')}>
                 {p.priceVsFairValue <= 0 ? <ChevronDown size={12} className="inline" /> : <ChevronUp size={12} className="inline" />} {Math.abs(p.priceVsFairValue).toFixed(1)}% vs est.
               </p>
@@ -986,34 +986,53 @@ function ComparisonModal({
               </tr>
               <tr>
                 <td className="text-xs text-slate-500">Neighborhood Score</td>
-                {properties.map(p => <td key={p.id} className="font-mono text-white">{p.neighborhoodScore}/100</td>)}
+                {properties.map(p => (
+                  <td key={p.id} className="font-mono text-white">
+                    {p.neighborhoodScore ? `${p.neighborhoodScore}/100` : '—'}
+                  </td>
+                ))}
               </tr>
               <tr>
                 <td className="text-xs text-slate-500">Fair Value Range</td>
                 {properties.map(p => (
-                  <td key={p.id} className="font-mono text-white text-xs">
+                  <td key={p.id} className="font-mono text-white text-xs whitespace-nowrap">
                     {fmt.compact(p.fairValueLow)}–{fmt.compact(p.fairValueHigh)}
                   </td>
                 ))}
               </tr>
               <tr>
                 <td className="text-xs text-slate-500">Price vs Fair Value</td>
-                {properties.map(p => (
-                  <td key={p.id} className={clsx('font-mono text-xs', p.priceVsFairValue <= 0 ? 'text-emerald-400' : 'text-red-400')}>
-                    {p.priceVsFairValue <= 0 ? <ChevronDown size={12} className="inline" /> : <ChevronUp size={12} className="inline" />} {Math.abs(p.priceVsFairValue).toFixed(1)}%
-                  </td>
-                ))}
+                {properties.map(p => {
+                  // Trust the backend value when present; otherwise derive from
+                  // fairValueLow/High so comparisons never show a meaningless 0.
+                  const fvMid = (p.fairValueLow + p.fairValueHigh) / 2;
+                  const derived = fvMid > 0 ? ((p.price - fvMid) / fvMid) * 100 : 0;
+                  const pct = p.priceVsFairValue !== 0 ? p.priceVsFairValue : derived;
+                  if (!Number.isFinite(pct) || (pct === 0 && fvMid === 0)) {
+                    return <td key={p.id} className="font-mono text-slate-500 text-xs">—</td>;
+                  }
+                  return (
+                    <td key={p.id} className={clsx('font-mono text-xs whitespace-nowrap', pct <= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                      {pct <= 0 ? <ChevronDown size={12} className="inline" /> : <ChevronUp size={12} className="inline" />} {Math.abs(pct).toFixed(1)}%
+                    </td>
+                  );
+                })}
               </tr>
               <tr>
                 <td className="text-xs text-slate-500">Days on Market</td>
-                {properties.map(p => <td key={p.id} className="font-mono text-white">{p.daysOnMarket}d</td>)}
+                {properties.map(p => (
+                  <td key={p.id} className="font-mono text-white">
+                    {p.daysOnMarket > 0 ? `${p.daysOnMarket}d` : '—'}
+                  </td>
+                ))}
               </tr>
               <tr>
                 <td className="text-xs text-slate-500">Competition</td>
                 {properties.map(p => {
                   const score = demand[p.id]?.demandScore ?? 0;
-                  const color = score >= 70 ? 'text-red-400' : score >= 35 ? 'text-amber-400' : 'text-slate-400';
-                  return <td key={p.id} className={clsx('font-mono text-xs', color)}>{score}/100</td>;
+                  const color = score >= 70 ? 'text-red-400' : score >= 35 ? 'text-amber-400' : 'text-slate-500';
+                  const label = score >= 70 ? `${score}/100` : score >= 35 ? `${score}/100` : score > 0 ? `${score}/100` : 'Low';
+                  return <td key={p.id} className={clsx('font-mono text-xs', color)}>{label}</td>;
                 })}
               </tr>
               <tr>

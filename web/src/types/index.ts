@@ -124,8 +124,10 @@ export interface PortfolioHolding {
   recommendation: 'Hold' | 'Refi' | 'Sell' | 'Watch';
   recommendationNote: string;
   image: string;
-  appreciation: number;
-  totalReturn: number;
+  // Null when current_value matches purchase_price (no AVM data set yet).
+  // UI renders "—" rather than a misleading 0%.
+  appreciation: number | null;
+  totalReturn: number | null;
 }
 
 export interface Portfolio {

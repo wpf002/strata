@@ -33,6 +33,21 @@ function Skeleton({ className }: { className?: string }) {
   return <div className={clsx('glass rounded-xl animate-pulse', className)} />;
 }
 
+// Small attribution chip — surfaces where a number actually comes from. Helps
+// users trust live data and recognize when a value is a model fallback.
+function DataSource({ label }: { label: string }) {
+  return <p className="text-[10px] text-slate-600 mt-2 leading-tight">{label}</p>;
+}
+
+function rentLabelFor(source: string | undefined): string {
+  if (!source) return 'Source: Rent Estimate';
+  const s = source.toLowerCase();
+  if (s.includes('rentcast')) return 'Source: RentCast · Live';
+  if (s.includes('quota') || s.includes('model')) return 'Source: STRATA Model · RentCast quota reached';
+  if (s.includes('cache')) return 'Source: RentCast · Cached';
+  return `Source: ${source}`;
+}
+
 export default function IntelligencePage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -676,9 +691,9 @@ function OverviewTab({ p }: { p: Property & { rentEstimate?: any; nearbySchools?
             <div>
               <MetricRow label="Beds / Baths" value={`${p.beds} / ${p.baths}`} />
               <MetricRow label="Property Type" value={p.type} />
-              <MetricRow label="Days on Market" value={`${p.daysOnMarket} days`} />
+              <MetricRow label="Days on Market" value={p.daysOnMarket > 0 ? `${p.daysOnMarket} days` : '—'} />
               <MetricRow label="Market Regime" value={p.marketRegime} />
-              <MetricRow label="Neighborhood Score" value={`${p.neighborhoodScore}/100`} highlight />
+              <MetricRow label="Neighborhood Score" value={p.neighborhoodScore ? `${p.neighborhoodScore}/100` : '—'} highlight />
             </div>
           </div>
         </div>
@@ -706,6 +721,7 @@ function OverviewTab({ p }: { p: Property & { rentEstimate?: any; nearbySchools?
                 </div>
               ))}
             </div>
+            <DataSource label="Source: NCES (National Center for Education Statistics)" />
           </div>
         )}
       </div>
@@ -715,33 +731,35 @@ function OverviewTab({ p }: { p: Property & { rentEstimate?: any; nearbySchools?
           <h3 className="text-sm font-semibold text-white mb-2">Rent Estimate</h3>
           {rentEst ? (
             <>
-              <p className="text-3xl font-bold font-mono text-white">{fmt.currency(rentEst.rentMid ?? rentEst.rent_mid)}<span className="text-sm text-slate-400">/mo</span></p>
-              <p className="text-xs text-slate-500 mt-0.5">{fmt.currency(rentEst.rentLow ?? rentEst.rent_low)} – {fmt.currency(rentEst.rentHigh ?? rentEst.rent_high)}</p>
+              <p className="text-3xl font-bold font-mono text-white whitespace-nowrap">{fmt.currency(rentEst.rentMid ?? rentEst.rent_mid)}<span className="text-sm text-slate-400">/mo</span></p>
+              <p className="text-xs text-slate-500 mt-0.5 whitespace-nowrap">{fmt.currency(rentEst.rentLow ?? rentEst.rent_low)} – {fmt.currency(rentEst.rentHigh ?? rentEst.rent_high)}</p>
               <div className="mt-2 flex items-center gap-2">
                 <ConfidencePill level={rentEst.confidence} />
-                <span className="text-xs text-slate-600">{rentEst.source}</span>
               </div>
+              <DataSource label={rentLabelFor(rentEst.source)} />
             </>
           ) : (
             <>
-              <p className="text-3xl font-bold font-mono text-white">{fmt.currency(p.rentEstMid)}<span className="text-sm text-slate-400">/mo</span></p>
-              <p className="text-xs text-slate-500 mt-0.5">{fmt.currency(p.rentEstLow)} – {fmt.currency(p.rentEstHigh)}</p>
+              <p className="text-3xl font-bold font-mono text-white whitespace-nowrap">{fmt.currency(p.rentEstMid)}<span className="text-sm text-slate-400">/mo</span></p>
+              <p className="text-xs text-slate-500 mt-0.5 whitespace-nowrap">{fmt.currency(p.rentEstLow)} – {fmt.currency(p.rentEstHigh)}</p>
               <div className="mt-2"><ConfidencePill level={p.rentConfidence} /></div>
+              <DataSource label="Source: STRATA Model · No RentCast quota available" />
             </>
           )}
         </div>
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-semibold text-white mb-2">Fair Value</h3>
-          <p className="text-2xl font-bold font-mono text-white">{fmt.compact(p.fairValueLow)}–{fmt.compact(p.fairValueHigh)}</p>
+          <p className="text-2xl font-bold font-mono text-white whitespace-nowrap">{fmt.compact(p.fairValueLow)}–{fmt.compact(p.fairValueHigh)}</p>
           <p className={clsx('text-sm font-semibold mt-1', p.priceVsFairValue <= 0 ? 'text-emerald-400' : 'text-red-400')}>
             {p.priceVsFairValue <= 0 ? `${Math.abs(p.priceVsFairValue).toFixed(1)}% below` : `${p.priceVsFairValue.toFixed(1)}% above`} estimate
           </p>
           <div className="mt-2"><ConfidencePill level={p.valuationConfidence} /></div>
+          <DataSource label={p.valuationConfidence === 'High' ? 'Source: STRATA AVM · Comp-based' : 'Source: STRATA Model · Limited comps'} />
         </div>
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-semibold text-white mb-3">Neighborhood</h3>
           <div className="flex items-center gap-3 mb-3">
-            <div className="text-2xl font-bold font-mono text-amber-400">{p.neighborhoodScore}</div>
+            <div className="text-2xl font-bold font-mono text-amber-400">{p.neighborhoodScore || '—'}</div>
             <div className="flex-1"><ProgressBar value={p.neighborhoodScore ?? 0} color="gold" /></div>
           </div>
           {[{ label: 'Schools', value: 72 }, { label: 'Safety', value: p.riskScore > 50 ? 55 : 78 }, { label: 'Walkability', value: 61 }, { label: 'Amenities', value: 80 }].map(s => (
@@ -1099,6 +1117,7 @@ function RiskTab({ p, riskData }: { p: Property; riskData: RiskData | null }) {
               </div>
               <p className="text-xs text-slate-500">Zone {flood.zone} — {flood.description}</p>
               {flood.inSfha && <p className="text-xs text-red-400 mt-1 inline-flex items-center gap-1"><AlertTriangle size={12} /> Special Flood Hazard Area — flood insurance likely required</p>}
+              <DataSource label="Source: FEMA NFHL · Current" />
             </div>
           </div>
         )}
