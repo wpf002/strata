@@ -14,6 +14,11 @@ const API_PATHS = [
   '/leads', '/activity',
 ]
 
+// The API port is configurable because 8080 is a popular squatting spot. Set
+// STRATA_API_PORT for both halves: `STRATA_API_PORT=8081 npm run dev`.
+const API_PORT = process.env.STRATA_API_PORT ?? '8080'
+const API_TARGET = `http://localhost:${API_PORT}`
+
 const bypassHtml = (req: { method?: string; headers: Record<string, string | string[] | undefined> }) => {
   const accept = req.headers.accept
   const acceptsHtml = typeof accept === 'string' && accept.includes('text/html')
@@ -29,7 +34,7 @@ export default defineConfig({
     strictPort: true,
     proxy: Object.fromEntries(
       API_PATHS.map(p => [p, {
-        target: 'http://localhost:8080',
+        target: API_TARGET,
         changeOrigin: true,
         bypass: bypassHtml,
       }])
