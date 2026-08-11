@@ -36,20 +36,23 @@ describe('MobileNav', () => {
     expect(within(topbar).getByText('Intelligence')).toBeInTheDocument();
   });
 
-  it('opens the drawer on hamburger click and shows all nav sections', async () => {
+  it('opens the drawer on hamburger click and shows the primary destinations', async () => {
     renderNav('/');
     const topbar = screen.getByRole('banner');
     fireEvent.click(within(topbar).getByRole('button', { name: /Open menu/i }));
 
-    // Section labels live in the drawer (<aside>, role=complementary)
+    // The four labelled groups over eleven entries collapsed to a flat six.
     await waitFor(() => {
-      expect(screen.getByText('DISCOVER')).toBeInTheDocument();
-      expect(screen.getByText('ANALYZE')).toBeInTheDocument();
-      expect(screen.getByText('OPERATE')).toBeInTheDocument();
-      expect(screen.getByText('TEAMS')).toBeInTheDocument();
+      for (const label of ['Search', 'Market Pulse', 'Property', 'Portfolio', 'Copilot', 'Clients']) {
+        expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+      }
     });
 
-    // And a close button — should be inside the drawer
+    // Watchlist / Underwrite / Leads are section tabs now, not drawer entries.
+    for (const gone of ['Watchlist', 'Underwrite', 'Leads']) {
+      expect(screen.queryByText(gone)).not.toBeInTheDocument();
+    }
+
     expect(screen.getByRole('button', { name: /Close menu/i })).toBeInTheDocument();
   });
 

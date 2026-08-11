@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
 import BottomTabs from './components/BottomTabs';
+import { SectionTabsBar } from './components/SectionTabs';
 import SearchPage from './pages/SearchPage';
 import IntelligencePage from './pages/IntelligencePage';
 import UnderwritePage from './pages/UnderwritePage';
@@ -54,6 +55,7 @@ export default function App() {
             <Sidebar />
             <div className="flex-1 flex flex-col overflow-hidden min-w-0 bg-navy-950/50">
               <MobileNav />
+              <SectionTabsBar />
               <main className="flex-1 overflow-hidden flex flex-col min-w-0">
                 <Routes>
                   <Route path="/" element={<SearchPage />} />

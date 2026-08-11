@@ -8,30 +8,12 @@
  */
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import {
-  Search, BarChart3, Calculator, Briefcase, TrendingUp, Bot, Users, Flame,
-  Settings, Bell, Zap, Menu, X, ChevronRight,
-} from 'lucide-react';
+import { Settings, Bell, Zap, Menu, X, ChevronRight } from 'lucide-react';
 import { clsx } from 'clsx';
+import { PRIMARY_NAV, isInSection } from './sections';
 
-const NAV_SECTIONS = [
-  { label: 'DISCOVER', items: [
-    { icon: Search, label: 'Search', path: '/' },
-    { icon: TrendingUp, label: 'Market Pulse', path: '/market' },
-  ]},
-  { label: 'ANALYZE', items: [
-    { icon: BarChart3, label: 'Intelligence', path: '/intelligence' },
-    { icon: Calculator, label: 'Underwrite', path: '/underwrite' },
-  ]},
-  { label: 'OPERATE', items: [
-    { icon: Briefcase, label: 'Portfolio', path: '/portfolio' },
-    { icon: Flame, label: 'Leads', path: '/leads' },
-    { icon: Bot, label: 'Copilot', path: '/copilot' },
-  ]},
-  { label: 'TEAMS', items: [
-    { icon: Users, label: 'Clients', path: '/clients' },
-  ]},
-];
+// Same six destinations as the sidebar and the bottom bar — one list, so the
+// three navs can't drift apart the way they had.
 
 const PAGE_TITLES: Record<string, string> = {
   '/':            'Search',
@@ -40,6 +22,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/underwrite':  'Underwrite',
   '/portfolio':   'Portfolio',
   '/leads':       'Leads',
+  '/watchlist':   'Watchlist',
   '/copilot':     'Copilot',
   '/clients':     'Clients',
   '/settings':    'Settings',
@@ -135,24 +118,17 @@ export default function MobileNav() {
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
-          {NAV_SECTIONS.map(section => (
-            <div key={section.label}>
-              <p className="text-[10px] font-semibold text-slate-600 tracking-widest px-3 mb-1.5">{section.label}</p>
-              <div className="space-y-0.5">
-                {section.items.map(item => {
-                  const active = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
-                  return (
-                    <Link key={item.path} to={item.path} className={clsx('nav-item', active && 'active')}>
-                      <item.icon size={16} strokeWidth={active ? 2.5 : 2} />
-                      <span>{item.label}</span>
-                      {active && <ChevronRight size={12} className="ml-auto opacity-50" />}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
+          {PRIMARY_NAV.map(item => {
+            const active = isInSection(location.pathname, item);
+            return (
+              <Link key={item.path} to={item.path} className={clsx('nav-item', active && 'active')}>
+                <item.icon size={16} strokeWidth={active ? 2.5 : 2} />
+                <span>{item.label}</span>
+                {active && <ChevronRight size={12} className="ml-auto opacity-50" />}
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="px-3 pb-4 pt-3 border-t border-white/5 flex-shrink-0 space-y-1">

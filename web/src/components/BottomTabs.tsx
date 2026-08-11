@@ -7,16 +7,16 @@
  * Settings, …); these five are the ones worth a permanent thumb target.
  */
 import { Link, useLocation } from 'react-router-dom';
-import { Search, TrendingUp, Briefcase, Bot, Users } from 'lucide-react';
 import { clsx } from 'clsx';
+import { PRIMARY_NAV, isInSection } from './sections';
 
-const TABS = [
-  { icon: Search, label: 'Search', path: '/' },
-  { icon: TrendingUp, label: 'Market', path: '/market' },
-  { icon: Briefcase, label: 'Portfolio', path: '/portfolio' },
-  { icon: Bot, label: 'Copilot', path: '/copilot' },
-  { icon: Users, label: 'Clients', path: '/clients' },
-];
+// Six primary destinations now fit, because Watchlist / Underwrite / Leads
+// moved into their parent sections instead of competing for a slot here.
+const TABS = PRIMARY_NAV.map(item => ({
+  ...item,
+  // The bar is narrow; a couple of labels need a shorter form.
+  label: item.label === 'Market Pulse' ? 'Market' : item.label,
+}));
 
 export default function BottomTabs() {
   const { pathname } = useLocation();
@@ -27,10 +27,7 @@ export default function BottomTabs() {
       className="md:hidden flex-shrink-0 flex items-stretch glass-dark border-t border-white/5 pb-[env(safe-area-inset-bottom)] z-30"
     >
       {TABS.map(tab => {
-        // Search owns "/" exactly — every other route would match a prefix test.
-        const active = tab.path === '/'
-          ? pathname === '/'
-          : pathname === tab.path || pathname.startsWith(tab.path + '/');
+        const active = isInSection(pathname, tab);
         return (
           <Link
             key={tab.path}
