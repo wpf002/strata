@@ -6,6 +6,7 @@ import type { Portfolio, PortfolioHolding } from '../types';
 import { StatCard, MetricRow, fmt } from '../components/UI';
 import { clsx } from 'clsx';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, Legend } from 'recharts';
+import { X_AXIS, Y_AXIS, TOOLTIP_STYLE, CHART_BOX, CHART_BOX_SM } from '../components/chartTheme';
 import { supabase } from '../lib/supabase';
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? '';
@@ -563,9 +564,9 @@ function EquityTimeline({ holding }: { holding: PortfolioHolding }) {
       <p className="text-xs text-slate-500 mb-3">
         Straight-line estimate — appreciation vs. principal paydown
       </p>
-      <div className="h-40">
+      <div className={CHART_BOX}>
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data}>
+          <AreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="eqg-appr" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#34d399" stopOpacity={0.4} />
@@ -576,10 +577,10 @@ function EquityTimeline({ holding }: { holding: PortfolioHolding }) {
                 <stop offset="95%" stopColor="#C9A84C" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${fmt.compact(v)}`} />
+            <XAxis dataKey="month" {...X_AXIS} />
+            <YAxis {...Y_AXIS} tickFormatter={v => fmt.compact(v)} />
             <Tooltip
-              contentStyle={{ background: '#112240', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }}
+              contentStyle={TOOLTIP_STYLE}
               formatter={(v: any, key: any) => [fmt.currency(v), key === 'appreciation' ? 'Appreciation' : 'Paydown']}
               labelFormatter={(m) => `Month ${m}`}
             />
@@ -744,14 +745,16 @@ export default function PortfolioPage() {
         </div>
       )}
 
-      <div className="px-4 md:px-6 py-3 md:py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0 gap-3">
-        <div>
+      {/* Stacks below sm — side by side the title and the two buttons each wrap
+          to three lines on a 375px screen. */}
+      <div className="px-4 md:px-6 py-3 md:py-4 border-b border-white/5 flex flex-col sm:flex-row sm:items-center sm:justify-between flex-shrink-0 gap-2 sm:gap-3">
+        <div className="min-w-0">
           <h1 className="text-lg font-semibold text-white">Portfolio</h1>
           <p className="text-sm text-slate-500">{portfolio.holdings.length} properties · Health Score: <span className="text-amber-400 font-mono font-semibold">{portfolio.healthScore}/100</span></p>
         </div>
-        <div className="flex items-center gap-3">
-          <button className="btn-ghost text-sm" onClick={load}><RefreshCw size={14} /> Refresh Values</button>
-          <button className="btn-primary text-sm" onClick={() => setShowAddModal(true)}><Plus size={14} /> Add Property</button>
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          <button className="btn-ghost text-sm whitespace-nowrap" onClick={load}><RefreshCw size={14} /> Refresh Values</button>
+          <button className="btn-primary text-sm whitespace-nowrap" onClick={() => setShowAddModal(true)}><Plus size={14} /> Add Property</button>
         </div>
       </div>
 
@@ -821,12 +824,12 @@ export default function PortfolioPage() {
             <EquityTimeline holding={active} />
             <div className="glass rounded-xl p-5">
               <h3 className="text-sm font-semibold text-white mb-3">Cash Flow by Property</h3>
-              <div className="h-36">
+              <div className={CHART_BOX_SM}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={cashFlowData} barSize={32}>
-                    <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                    <Tooltip contentStyle={{ background: '#112240', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }} formatter={(v: any) => [fmt.currency(v), 'Cash Flow']} />
+                  <BarChart data={cashFlowData} barSize={32} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                    <XAxis dataKey="name" {...X_AXIS} />
+                    <YAxis {...Y_AXIS} tickFormatter={v => `$${v}`} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: any) => [fmt.currency(v), 'Cash Flow']} />
                     <Bar dataKey="value" radius={[4, 4, 0, 0]}>
                       {cashFlowData.map((_, i) => <Cell key={i} fill={portfolio.holdings[i]?.id === activeId ? '#C9A84C' : '#34d399'} />)}
                     </Bar>

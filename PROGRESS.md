@@ -1,5 +1,71 @@
 # STRATA — Progress Log
 
+## Sprint 8 — August 2026 — Mobile Web Polish
+
+Closes three of the four items left open under "Not yet done" in the Sprint 6
+mobile-responsive addendum.
+
+### Bottom tab bar
+
+- New `web/src/components/BottomTabs.tsx` — five primary destinations (Search,
+  Market, Portfolio, Copilot, Clients), `md:hidden`, `aria-current="page"` on the
+  active tab, `pb-[env(safe-area-inset-bottom)]` for the home indicator
+- Rendered as a flex sibling of `<main>` in `App.tsx`, so it reserves layout
+  height instead of overlaying page content — nothing needed extra bottom padding
+- Search matches `/` exactly; every other tab also matches its nested routes
+- The hamburger drawer in `MobileNav` still carries the full nav (Watchlist,
+  Intelligence, Underwrite, Leads, Alerts, Settings)
+- SearchPage's floating Compare bar moved to `bottom-[72px] md:bottom-4` so it
+  clears the new bar, plus `max-w-[calc(100vw-1.5rem)]` on narrow screens
+
+### Map view on mobile
+
+- Dropped `hidden sm:flex` from the list/map toggle — it's now available at every
+  width
+- Split layout is `flex-col md:flex-row`: on phones the map sits on top at a fixed
+  `45vh` and the property list scrolls beneath it; desktop keeps the 55/45 split
+- Toggle buttons had no accessible names — added `aria-label` ("List view" /
+  "Map view") and `aria-pressed`
+
+### Chart tuning for small screens
+
+- New `web/src/components/chartTheme.ts` — shared `X_AXIS` / `Y_AXIS` /
+  `TOOLTIP_STYLE` / height constants, applied to all five Recharts sites
+  (Portfolio equity timeline + cash flow, Intelligence price history ×2,
+  Underwrite scenario analysis)
+- `minTickGap: 16` + `interval="preserveStartEnd"` thins X labels only when they
+  would collide — desktop keeps every tick, a 375px screen drops to ~5
+- Y axis narrowed from Recharts' default 60px to 46px (that gutter was ~18% of a
+  phone-width card), tick font unified at 10px
+- Chart boxes are taller on phones, original height from `md` up
+- **Fixed:** the three `$${fmt.compact(v)}` tick formatters rendered `$$360K` —
+  `fmt.compact` already prefixes the dollar sign
+
+### Portfolio header
+
+- Title block and the Refresh/Add buttons stack below `sm` — side by side, both
+  wrapped to three lines on a 375px screen
+
+### Supabase anon key
+
+- `web/.env.local` carried a comment calling the key a placeholder. It isn't: the
+  JWT verifies against `SUPABASE_JWT_SECRET`, is scoped to project
+  `mawabokdbrmzegjtvzyz` with `role: anon`, and doesn't expire until 2036.
+  Corrected the comment — nothing was blocking login
+
+### Test + build verification
+
+- Frontend: **85 vitest pass** (81 → 85; +4 BottomTabs tests), **0 TypeScript errors**
+- Backend: **107 pytest pass** (untouched)
+- Visually verified at 375×812 and desktop: bottom tabs, mobile map split,
+  all five charts, Portfolio header
+
+### Still open
+
+- Touch-specific interaction polish (hover states, tap highlights)
+- Native mobile builds unverified on device (Firebase credentials, `pod install`,
+  Android keystore — see `mobile/SETUP.md`)
+
 ## Sprint 5 — May 2026 — Bug-fix Pass
 
 ### Bug Fixes

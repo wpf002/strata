@@ -11,6 +11,7 @@ import type { ValuationData, RiskData, RenovationEstimate, DemandSignal } from '
 import { ScoreBadge, RiskBadge, RegimeBadge, FlagBadge, ConfidencePill, MetricRow, StatCard, ProgressBar, fmt } from '../components/UI';
 import { clsx } from 'clsx';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { X_AXIS, Y_AXIS, TOOLTIP_STYLE, CHART_BOX_SM } from '../components/chartTheme';
 import { supabase } from '../lib/supabase';
 
 const TABS = ['Overview', 'Financials', 'Valuation', 'Risk', 'Market', 'Offer Strategy', 'History'];
@@ -1050,13 +1051,13 @@ function ValuationTab({ p, valuation }: { p: Property; valuation: ValuationData 
       <div className="space-y-4">
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-semibold text-white mb-3">Price History</h3>
-          <div className="h-36">
+          <div className={CHART_BOX_SM}>
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={priceHistory}>
+              <AreaChart data={priceHistory} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <defs><linearGradient id="pg" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#C9A84C" stopOpacity={0.3} /><stop offset="95%" stopColor="#C9A84C" stopOpacity={0} /></linearGradient></defs>
-                <XAxis dataKey="date" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${fmt.compact(v)}`} />
-                <Tooltip contentStyle={{ background: '#112240', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }} formatter={(v: any) => [fmt.currency(v), 'Price']} />
+                <XAxis dataKey="date" {...X_AXIS} />
+                <YAxis {...Y_AXIS} tickFormatter={v => fmt.compact(v)} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: any) => [fmt.currency(v), 'Price']} />
                 <Area type="monotone" dataKey="price" stroke="#C9A84C" strokeWidth={2} fill="url(#pg)" />
               </AreaChart>
             </ResponsiveContainer>
@@ -1208,13 +1209,13 @@ function HistoryTab() {
     <div className="space-y-4">
       <div className="glass rounded-xl p-5">
         <h3 className="text-sm font-semibold text-white mb-4">Price History</h3>
-        <div className="h-48">
+        <div className="h-56 md:h-48">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={priceHistory}>
+            <AreaChart data={priceHistory} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <defs><linearGradient id="pg2" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#C9A84C" stopOpacity={0.3} /><stop offset="95%" stopColor="#C9A84C" stopOpacity={0} /></linearGradient></defs>
-              <XAxis dataKey="date" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${fmt.compact(v)}`} />
-              <Tooltip contentStyle={{ background: '#112240', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }} formatter={(v: any) => [fmt.currency(v), 'Price']} />
+              <XAxis dataKey="date" {...X_AXIS} />
+              <YAxis {...Y_AXIS} tickFormatter={v => fmt.compact(v)} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: any) => [fmt.currency(v), 'Price']} />
               <Area type="monotone" dataKey="price" stroke="#C9A84C" strokeWidth={2} fill="url(#pg2)" />
             </AreaChart>
           </ResponsiveContainer>

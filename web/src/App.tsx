@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
+import BottomTabs from './components/BottomTabs';
 import SearchPage from './pages/SearchPage';
 import IntelligencePage from './pages/IntelligencePage';
 import UnderwritePage from './pages/UnderwritePage';
@@ -65,6 +66,7 @@ export default function App() {
                   <Route path="/alerts" element={<AlertsPage />} />
                 </Routes>
               </main>
+              <BottomTabs />
             </div>
           </div>
         } />

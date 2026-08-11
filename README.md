@@ -13,28 +13,32 @@ strata/
 
 ## Quick Start
 
-### Web
+### Web + API together
 ```bash
-cd web
-npm install
+npm run install:all
 npm run dev
-# → http://localhost:5173
+# web → http://localhost:5174   api → http://localhost:8080
 ```
 
 ### Mobile
 ```bash
 cd mobile
 npm install
-npx react-native run-ios    # or run-android
+npx react-native run-ios    # or run-android — first read mobile/SETUP.md
 ```
 
 ## Environment
 
 Create `web/.env.local`:
 ```
-VITE_API_URL=http://localhost:8000
-VITE_USE_MOCK=true
+VITE_API_URL=
+VITE_USE_MOCK=false
+VITE_SUPABASE_URL=https://<project>.supabase.co
+VITE_SUPABASE_ANON_KEY=<publishable anon key>
 ```
+`VITE_API_URL` stays empty in dev — Vite proxies API paths to the backend on
+:8080 (see `web/vite.config.ts`). Set `VITE_USE_MOCK=true` to run the UI off
+`src/data/mockData.ts` with no backend at all.
 
 Create `mobile/.env`:
 ```
@@ -42,7 +46,9 @@ STRATA_API_URL=http://localhost:8000
 STRATA_USE_MOCK=true
 ```
 
-Set `VITE_USE_MOCK=false` / `STRATA_USE_MOCK=false` once the FastAPI backend is running.
+Backend secrets go in `backend/.env` (`DATABASE_URL`, `SUPABASE_URL`,
+`SUPABASE_JWT_SECRET`, `ANTHROPIC_API_KEY`, `RAPIDAPI_KEY`, `RENTCAST_API_KEY`,
+`SENDGRID_API_KEY`). All are git-ignored.
 
 ## Tech Stack
 
@@ -50,26 +56,30 @@ Set `VITE_USE_MOCK=false` / `STRATA_USE_MOCK=false` once the FastAPI backend is 
 |-------|-----------|
 | Web frontend | React 18, TypeScript, Vite, Tailwind CSS |
 | Mobile | React Native (bare), TypeScript |
-| Backend (next) | FastAPI, Python |
-| Database (next) | PostgreSQL + PostGIS |
-| Auth (next) | Supabase Auth / Auth0 |
+| Backend | FastAPI, Python |
+| Database | Supabase Postgres (Alembic migrations, RLS on all public tables) |
+| Auth | Supabase Auth |
+| Live data | RapidAPI (listings), RentCast (rents + markets), FEMA NFHL (flood), NCES (schools) |
+| AI | Claude via the `anthropic` SDK (Copilot, memos, LP reports) |
 
 ## Built Screens
 
 ### Web
-- **Search / Opportunity Feed** — investor filters, deal score ranking, live market sidebar
+- **Search / Opportunity Feed** — investor filters, deal score ranking, list or map+list split, comparison modal
 - **Property Intelligence** — 6-tab deep dive: overview, financials, valuation, risk, market, history
-- **Underwrite** — live P&L model, all inputs are sliders, scenario analysis, DSCR check
+- **Underwrite** — live P&L model, all inputs are sliders, scenario analysis, DSCR check, strategy modes
 - **Portfolio** — equity tracking, cash flow charts, concentration analysis, hold/refi/sell recommendations
-- **Copilot** — AI chat interface for property Q&A and deal analysis
+- **Copilot** — streaming Claude chat with property context, suggested prompts, conversation history
+- **Market Pulse** — 5 markets with regime classification and trend metrics
+- **Clients / Leads / Client Portals** — CRM layer, transaction timelines, shareable client-facing portals
+- **Watchlist · Alerts · Reports · Settings**
 
 ### Mobile
 - **Search Screen** — opportunity feed with deal scores, risk flags, quick actions
 - **Underwrite Screen** — full live underwriting engine with native sliders
+- **Intelligence · Portfolio · Copilot** screens, bottom tab navigation, push alerts
 
 ## Next Steps
-1. FastAPI backend with PostgreSQL
-2. Real MLS/property data via ATTOM or Estated
-3. User auth + saved searches
-4. Market Pulse dashboard
-5. STRATA Teams (agent tools)
+1. Verify the native mobile builds on device (see `mobile/SETUP.md`)
+2. Mobile map view redesign and touch-interaction polish
+3. Broader MLS coverage beyond the current market list

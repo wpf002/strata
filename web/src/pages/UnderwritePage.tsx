@@ -9,6 +9,7 @@ import type { Property, UnderwritingInputs, UnderwritingOutputs } from '../types
 import { ScoreBadge, RiskBadge, MetricRow, fmt } from '../components/UI';
 import { clsx } from 'clsx';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { X_AXIS, Y_AXIS, TOOLTIP_STYLE, CHART_BOX_SM } from '../components/chartTheme';
 
 const STRATEGIES = ['Long-Term Rental', 'BRRRR', 'Fix & Flip', 'Short-Term Rental', 'House Hack', 'Appreciation Play', 'Renovation'];
 const LOAN_TYPES = ['30yr Fixed', '15yr Fixed', 'DSCR Loan', 'Interest Only', 'Hard Money'];
@@ -1094,12 +1095,12 @@ export default function UnderwritePage() {
             {/* Scenarios */}
             <div className="glass rounded-xl p-5">
               <h3 className="text-sm font-semibold text-white mb-4">Scenario Analysis</h3>
-              <div className="h-36 mb-3">
+              <div className={clsx(CHART_BOX_SM, 'mb-3')}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={outputs.scenarios} barSize={40}>
-                    <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={v => `$${Math.round(v)}`} />
-                    <Tooltip contentStyle={{ background: '#112240', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }} formatter={(v: any) => [fmt.currency(v), 'Cash Flow']} />
+                  <BarChart data={outputs.scenarios} barSize={40} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                    <XAxis dataKey="name" {...X_AXIS} />
+                    <YAxis {...Y_AXIS} tickFormatter={v => `$${Math.round(v)}`} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: any) => [fmt.currency(v), 'Cash Flow']} />
                     <Bar dataKey="cashFlow" radius={[4, 4, 0, 0]}>
                       {outputs.scenarios.map((s, i) => <Cell key={i} fill={s.cashFlow >= 200 ? '#34d399' : s.cashFlow >= 0 ? '#C9A84C' : '#f87171'} />)}
                     </Bar>

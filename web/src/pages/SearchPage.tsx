@@ -465,9 +465,15 @@ export default function SearchPage() {
             <SlidersHorizontal size={14} /> <span className="hidden sm:inline">Filters</span>
           </button>
 
-          <div className="hidden sm:flex rounded-lg overflow-hidden border border-white/10 flex-shrink-0">
+          <div className="flex rounded-lg overflow-hidden border border-white/10 flex-shrink-0">
             {(['list', 'map'] as const).map(v => (
-              <button key={v} onClick={() => setView(v)} className={clsx('px-3 py-2 transition-all', view === v ? 'bg-amber-500/20 text-amber-400' : 'text-slate-500 hover:text-slate-400')}>
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                aria-label={v === 'list' ? 'List view' : 'Map view'}
+                aria-pressed={view === v}
+                className={clsx('px-3 py-2 transition-all', view === v ? 'bg-amber-500/20 text-amber-400' : 'text-slate-500 hover:text-slate-400')}
+              >
                 {v === 'list' ? <List size={14} /> : <Map size={14} />}
               </button>
             ))}
@@ -522,7 +528,7 @@ export default function SearchPage() {
       {/* Floating Compare bar — appears when 1+ properties selected. z-[2000]
           keeps it above Leaflet tile layers (which can climb to z-650). */}
       {compareIds.length > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[2000] flex items-center gap-3 rounded-full border border-amber-500/40 bg-navy-950 px-4 py-2.5 shadow-2xl">
+        <div className="fixed bottom-[72px] md:bottom-4 left-1/2 -translate-x-1/2 z-[2000] flex items-center gap-3 rounded-full border border-amber-500/40 bg-navy-950 px-4 py-2.5 shadow-2xl max-w-[calc(100vw-1.5rem)]">
           <GitCompareArrows size={14} className="text-amber-400" />
           <span className="text-sm text-white font-medium">
             Compare <span className="text-amber-400 font-mono">({compareIds.length})</span>
@@ -649,9 +655,10 @@ export default function SearchPage() {
               )}
             </div>
           ) : (
-            /* Map + List split */
-            <div className="flex w-full h-full">
-              <div className="flex-1 relative">
+            /* Map + List split — side-by-side on desktop, stacked on mobile
+               (map on top at a fixed 45vh, list scrolls beneath it). */
+            <div className="flex flex-col md:flex-row w-full h-full">
+              <div className="h-[45vh] md:h-auto flex-shrink-0 md:flex-shrink md:flex-1 relative">
                 <MapView
                   properties={visibleProperties}
                   highlightedId={highlightedId}
@@ -664,7 +671,7 @@ export default function SearchPage() {
                   onWatch={toggleWatch}
                 />
               </div>
-              <div className="w-[45%] flex-shrink-0 overflow-y-auto border-l border-white/5 px-4 py-4">
+              <div className="flex-1 md:flex-none md:w-[45%] md:flex-shrink-0 overflow-y-auto border-t md:border-t-0 md:border-l border-white/5 px-4 py-4">
                 <div className="mb-3 flex items-center justify-between">
                   <p className="text-xs text-slate-500">{visibleProperties.length} properties</p>
                   <button onClick={() => setShowSaveModal(true)} className="btn-ghost text-xs py-1 px-2"><Bell size={11} /> Save</button>
