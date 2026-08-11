@@ -1,5 +1,64 @@
 # STRATA — Progress Log
 
+## Sprint 9 — August 2026 — Audit completion, nav collapse, first native build
+
+### Phase 1 — audit finished
+
+Clients, Leads, Alerts, Watchlist, Market Pulse, Portal, Report and Settings all
+read from real endpoints — nothing fabricated. Two more in Intelligence:
+
+- Neighborhood panel rendered Schools 72 / Walkability 61 / Amenities 80 as
+  constants with progress bars, identical on every property. No source exists
+  for walkability or amenities, so it reports the real NCES school count and
+  risk score instead.
+- The Financials P&L hid its expense assumptions inside an expression
+  (`p.price * 0.022 / 12 + 140`), presenting an assumed tax rate and insurance
+  premium as the property's actual bills. Now named constants with a disclosure.
+
+### Phase 2 — eleven nav destinations to six
+
+Watchlist, Underwrite and Leads were each a single view promoted to a top-level
+entry, which is why the mobile bottom bar could only justify five slots. They're
+now section tabs under their parent:
+
+| Section | Tabs |
+| --- | --- |
+| Search | Opportunity Feed · Watchlist |
+| Property | Intelligence · Underwrite |
+| Clients | Clients · Leads |
+
+No page code moved and no routes changed. The sidebar, drawer and bottom bar had
+each kept a private copy of the nav list — all three now read
+`components/sections.ts`, and the tab strip renders once in the app shell.
+
+### Phase 3 — iOS builds and runs
+
+**First time this app has ever compiled.** Verified on Xcode 26.6, iPhone 17 Pro
+simulator, CocoaPods 1.16.2 — launches to the Login screen against live Supabase.
+
+Four real blockers, in the order they surfaced:
+
+1. `pod install` refused to run: RN 0.76 moved the CLI out of core and
+   autolinking needs `@react-native-community/cli`, which wasn't a dependency.
+2. "No script URL provided" — Metro wasn't running. Metro's default 8081 had
+   been taken by the backend, so the API moved to 8083.
+3. "supabaseKey is required" — no `mobile/.env`; only `.env.example` was
+   committed. Created from `web/.env.local` (git-ignored).
+4. "URL.protocol is not implemented" — React Native's `URL` is a stub and
+   supabase-js reads `.protocol` in its constructor. Added
+   `react-native-url-polyfill`, imported at the top of `index.js`.
+
+**Android is not verified** — the machine has no Android SDK, no Android Studio,
+no CLI tools. The Gradle project is configured (compileSdk 35, NDK 26.1); what's
+missing is the toolchain, plus a JDK 17 (this machine has 25, which RN 0.76's
+Gradle will reject). `SETUP.md` §4 lists exactly what to install.
+
+### Verification
+
+- Mobile TypeScript 0 errors; **iOS build succeeded and app runs on simulator**
+- Web **97 vitest** (+8), 0 tsc errors, clean build
+- Backend **128 pytest**
+
 ## Sprint 8 — August 2026 — Supabase Health Check + Keepalive
 
 ### What happened
