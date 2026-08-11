@@ -71,4 +71,6 @@ export const fmt = {
   pct: (n: number, d = 1) => `${n.toFixed(d)}%`,
   num: (n: number) => new Intl.NumberFormat('en-US').format(n),
   compact: (n: number) => '$' + new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(n),
+  // Growth/change figures read wrong without an explicit sign on the upside.
+  signedPct: (n: number, d = 1) => `${n >= 0 ? '+' : ''}${n.toFixed(d)}%`,
 };

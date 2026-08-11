@@ -5,22 +5,14 @@ import {
   ThumbsUp, ThumbsDown, Clock, Home, TrendingUp, Shield, AlertTriangle,
   Landmark, Bot, Droplets, GraduationCap, Target, Send, X, Check, Loader2, Zap, Hammer,
 } from 'lucide-react';
-import { getProperty, getValuation, getRisk, getWatchlists, createWatchlist, addToWatchlist, removeFromWatchlist, getRenovationEstimate, logActivity, removeActivity, getDemandSignal } from '../api/client';
-import type { Property } from '../types';
+import { getProperty, getValuation, getRisk, getWatchlists, createWatchlist, addToWatchlist, removeFromWatchlist, getRenovationEstimate, logActivity, removeActivity, getDemandSignal, getMarketFor } from '../api/client';
+import type { Property, MarketSummary } from '../types';
 import type { ValuationData, RiskData, RenovationEstimate, DemandSignal } from '../api/client';
 import { ScoreBadge, RiskBadge, RegimeBadge, FlagBadge, ConfidencePill, MetricRow, StatCard, ProgressBar, fmt } from '../components/UI';
 import { clsx } from 'clsx';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { X_AXIS, Y_AXIS, TOOLTIP_STYLE, CHART_BOX_SM } from '../components/chartTheme';
 import { supabase } from '../lib/supabase';
 
 const TABS = ['Overview', 'Financials', 'Valuation', 'Risk', 'Market', 'Offer Strategy', 'History'];
-
-const priceHistory = [
-  { date: 'Jan 23', price: 295000 }, { date: 'Apr 23', price: 310000 },
-  { date: 'Jul 23', price: 318000 }, { date: 'Oct 23', price: 314000 },
-  { date: 'Jan 24', price: 329000 }, { date: 'Apr 24', price: 342000 },
-];
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? '';
 
@@ -369,8 +361,14 @@ export default function IntelligencePage() {
           {rec === 'Watch' && 'Marginal at current price. Set a price drop alert.'}
           {rec === 'Avoid' && 'Does not meet return thresholds at any reasonable assumption.'}
         </p>
+        {/* This read "Based on {priceHistory.length} comps" — the length of a
+            hardcoded chart array, i.e. always 6, regardless of the real comp
+            set. Only claim a comp count when the valuation actually has one. */}
         <div className="hidden lg:flex ml-auto items-center gap-1 text-xs text-slate-600">
-          <Info size={11} /> Based on {priceHistory.length} comps · {property.riskFlags.length} risk factors · current market
+          <Info size={11} />
+          {valuation?.compCount
+            ? `Based on ${valuation.compCount} comps · ${property.riskFlags.length} risk factors`
+            : `Based on ${property.riskFlags.length} risk factor${property.riskFlags.length === 1 ? '' : 's'} · no comps available`}
         </div>
       </div>
 
@@ -403,7 +401,7 @@ export default function IntelligencePage() {
         )}
         {activeTab === 'Market' && <MarketTab p={property} />}
         {activeTab === 'Offer Strategy' && <OfferStrategyTab p={property} />}
-        {activeTab === 'History' && <HistoryTab />}
+        {activeTab === 'History' && <HistoryTab p={property} />}
       </div>
     </div>
   );
@@ -1036,33 +1034,25 @@ function ValuationTab({ p, valuation }: { p: Property; valuation: ValuationData 
         </div>
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-semibold text-white mb-3">How We Got Here</h3>
-          {[
-            { method: 'Comp-Based AVM (60% weight)', result: fmt.currency(Math.round(fvMid - 3000)), note: `${compCount || 9} comps · avg. 72 days old` },
-            { method: 'Income Approach (25% weight)', result: fmt.currency(Math.round(fvMid + 2000)), note: `Based on ${fmt.currency(p.rentEstMid)}/mo rent at 5.4% cap rate` },
-            { method: 'Hedonic Pricing (15% weight)', result: fmt.currency(Math.round(fvMid - 5000)), note: `School quality 72 · walkability 61` },
-          ].map(m => (
-            <div key={m.method} className="flex items-center justify-between p-3 rounded-lg bg-white/3 border border-white/5 mb-2">
-              <div><p className="text-sm text-white font-medium">{m.method}</p><p className="text-xs text-slate-500">{m.note}</p></div>
-              <span className="text-sm font-mono font-bold text-amber-400">{m.result}</span>
+          {/* This used to show a three-method AVM breakdown whose numbers were
+              the real mid-point ± arbitrary constants, with invented notes
+              ("avg. 72 days old", "walkability 61"). The backend runs one
+              comp-based model, so that's what gets described. */}
+          <div className="p-3 rounded-lg bg-white/3 border border-white/5 mb-2">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-white font-medium">Comp-based AVM</p>
+              <span className="text-sm font-mono font-bold text-amber-400">{fmt.currency(Math.round(fvMid))}</span>
             </div>
-          ))}
+            <p className="text-xs text-slate-500 mt-0.5">
+              {compCount > 0
+                ? `Median of ${compCount} size- and recency-adjusted comparable sale${compCount === 1 ? '' : 's'}`
+                : 'No comparable sales available — range is anchored to list price, which is why confidence reads Low'}
+            </p>
+          </div>
+          <DataSource label="Source: STRATA valuation model · RentCast comps" />
         </div>
       </div>
       <div className="space-y-4">
-        <div className="glass rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-white mb-3">Price History</h3>
-          <div className={CHART_BOX_SM}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={priceHistory} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                <defs><linearGradient id="pg" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#C9A84C" stopOpacity={0.3} /><stop offset="95%" stopColor="#C9A84C" stopOpacity={0} /></linearGradient></defs>
-                <XAxis dataKey="date" {...X_AXIS} />
-                <YAxis {...Y_AXIS} tickFormatter={v => fmt.compact(v)} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: any) => [fmt.currency(v), 'Price']} />
-                <Area type="monotone" dataKey="price" stroke="#C9A84C" strokeWidth={2} fill="url(#pg)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
         <div className="glass rounded-xl p-5">
           <h3 className="text-sm font-semibold text-white mb-3">Comparable Sales</h3>
           {comps.length > 0 ? comps.map((c, i) => (
@@ -1070,12 +1060,13 @@ function ValuationTab({ p, valuation }: { p: Property; valuation: ValuationData 
               <div><p className="text-xs text-white">{c.address}</p><p className="text-[10px] text-slate-500">{fmt.num(c.sqft)} sqft{c.daysAgo ? ` · ${c.daysAgo}d ago` : ''}</p></div>
               <div className="text-right"><p className="text-xs font-mono font-semibold text-white">{fmt.currency(c.adjustedValue || c.listPrice)}</p><p className="text-[10px] text-slate-500">{c.sqft ? fmt.currency(Math.round((c.adjustedValue || c.listPrice) / c.sqft)) : '—'}/sqft</p></div>
             </div>
-          )) : [{ address: '4490 Oak Creek Dr', price: 338000, sqft: 1820, daysAgo: 34 }, { address: '521 Hillcrest Ave', price: 318000, sqft: 1760, daysAgo: 61 }, { address: '6102 Lakeview Blvd', price: 352000, sqft: 1910, daysAgo: 48 }].map(c => (
-            <div key={c.address} className="flex justify-between items-center py-2 border-b border-white/5 last:border-0">
-              <div><p className="text-xs text-white">{c.address}</p><p className="text-[10px] text-slate-500">{fmt.num(c.sqft)} sqft · {c.daysAgo}d ago</p></div>
-              <div className="text-right"><p className="text-xs font-mono font-semibold text-white">{fmt.currency(c.price)}</p><p className="text-[10px] text-slate-500">{fmt.currency(Math.round(c.price / c.sqft))}/sqft</p></div>
-            </div>
-          ))}
+          )) : (
+            /* Previously fell back to three invented addresses with prices —
+               indistinguishable from real comps to anyone reading the page. */
+            <p className="text-xs text-slate-600 py-2 leading-relaxed">
+              No comparable sales found for this property.
+            </p>
+          )}
         </div>
       </div>
     </div>
@@ -1180,63 +1171,86 @@ function RiskTab({ p, riskData }: { p: Property; riskData: RiskData | null }) {
 }
 
 function MarketTab({ p }: { p: Property }) {
+  // Live figures for this property's market. Everything here used to be a
+  // hardcoded Dallas panel shown for every property in every city.
+  const [market, setMarket] = useState<MarketSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    getMarketFor(p.city, p.state)
+      .then(m => { if (!cancelled) setMarket(m); })
+      .catch(() => { if (!cancelled) setMarket(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [p.city, p.state]);
+
+  if (loading) {
+    return <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+      {[1, 2].map(i => <div key={i} className="glass rounded-xl h-56 animate-pulse" />)}
+    </div>;
+  }
+
+  if (!market) {
+    return (
+      <div className="glass rounded-xl p-6 text-center">
+        <p className="text-sm text-slate-400 mb-1">
+          No market data for {[p.city, p.state].filter(Boolean).join(', ') || 'this location'}
+        </p>
+        <p className="text-xs text-slate-600">
+          STRATA tracks a fixed set of markets. See Market Pulse for coverage.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div className="grid grid-cols-2 gap-5">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
       <div className="glass rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-white mb-4">Dallas Market Overview</h3>
-        <MetricRow label="Market Regime" value="Balanced" />
-        <MetricRow label="Median Price" value="$342,000" />
-        <MetricRow label="Price Growth 12mo" value="+4.2%" highlight />
-        <MetricRow label="Active Inventory" value="2.3 months" />
-        <MetricRow label="Median DOM" value="28 days" />
-        <MetricRow label="List-to-Sale Ratio" value="97.2%" />
-        <MetricRow label="Price Reductions" value="31% of listings" />
+        <h3 className="text-sm font-semibold text-white mb-4">{market.city}, {market.state} Market Overview</h3>
+        <MetricRow label="Market Regime" value={market.regime} />
+        <MetricRow label="Median Price" value={fmt.currency(market.medianPrice)} />
+        <MetricRow label="Price Growth 12mo" value={fmt.signedPct(market.priceChange12Mo)} highlight />
+        <MetricRow label="Active Inventory" value={`${market.inventoryMonths.toFixed(1)} months`} />
+        <MetricRow label="Median DOM" value={`${Math.round(market.daysOnMarket)} days`} />
+        <MetricRow label="Cap Rate Median" value={fmt.pct(market.capRateMedian)} />
+        <DataSource label={`${market.city} market · RentCast`} />
       </div>
       <div className="glass rounded-xl p-5">
         <h3 className="text-sm font-semibold text-white mb-4">Rental Market — {p.zip}</h3>
-        <MetricRow label="Median Rent (3/2 SFR)" value={fmt.currency(p.rentEstMid)} />
-        <MetricRow label="Rent Growth 12mo" value="+3.1%" highlight />
-        <MetricRow label="Vacancy Rate" value="4.8%" />
-        <MetricRow label="Rent Yield" value={fmt.pct(p.capRate + 1.2)} />
-        <MetricRow label="New Supply in Pipeline" value="240 units (12mo)" />
+        <MetricRow label="Rent Estimate (this property)" value={fmt.currency(p.rentEstMid)} />
+        <MetricRow label="Rent Growth 12mo" value={fmt.signedPct(market.rentGrowth12Mo)} highlight />
+        <MetricRow label="Vacancy Rate" value={fmt.pct(market.vacancyRate)} />
+        <DataSource label="RentCast · Live" />
       </div>
     </div>
   );
 }
 
-function HistoryTab() {
+function HistoryTab({ p }: { p: Property }) {
+  // Price history and prior transfers need a records source (assessor / deed
+  // data) that isn't wired up. This tab used to render a fixed six-point chart
+  // and four invented sales — including a made-up MLS number — identically for
+  // every property in the system. An honest empty state beats fiction.
   return (
     <div className="space-y-4">
-      <div className="glass rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-white mb-4">Price History</h3>
-        <div className="h-56 md:h-48">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={priceHistory} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <defs><linearGradient id="pg2" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#C9A84C" stopOpacity={0.3} /><stop offset="95%" stopColor="#C9A84C" stopOpacity={0} /></linearGradient></defs>
-              <XAxis dataKey="date" {...X_AXIS} />
-              <YAxis {...Y_AXIS} tickFormatter={v => fmt.compact(v)} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: any) => [fmt.currency(v), 'Price']} />
-              <Area type="monotone" dataKey="price" stroke="#C9A84C" strokeWidth={2} fill="url(#pg2)" />
-            </AreaChart>
-          </ResponsiveContainer>
+      <div className="glass rounded-xl p-8 text-center">
+        <p className="text-sm text-slate-400 mb-1">Transaction history not available</p>
+        <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
+          STRATA doesn't have a public-records feed connected yet, so prior sales and
+          price changes for {p.address} can't be shown. Current listing data is on the
+          Overview tab.
+        </p>
+      </div>
+      {p.daysOnMarket > 0 && (
+        <div className="glass rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-white mb-3">Current Listing</h3>
+          <MetricRow label="Days on Market" value={`${p.daysOnMarket} days`} />
+          <MetricRow label="List Price" value={fmt.currency(p.price)} />
+          <DataSource label="Source: active listing feed" />
         </div>
-      </div>
-      <div className="glass rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-white mb-4">Ownership History</h3>
-        {[
-          { date: 'Apr 2024', event: 'Listed for sale', price: '$342,000', detail: 'MLS #DL2400823' },
-          { date: 'Jun 2019', event: 'Sold', price: '$268,000', detail: 'Conventional loan · Warranty deed' },
-          { date: 'Mar 2012', event: 'Sold', price: '$198,000', detail: 'Conventional loan' },
-          { date: 'Nov 2001', event: 'New construction', price: '$164,000', detail: 'Original sale' },
-        ].map((e, i) => (
-          <div key={i} className="flex items-start gap-4 py-3 border-b border-white/5 last:border-0">
-            <div className="text-xs text-slate-500 w-20 flex-shrink-0 pt-0.5">{e.date}</div>
-            <div className="w-2 h-2 rounded-full bg-amber-500 mt-1.5 flex-shrink-0" />
-            <div className="flex-1"><p className="text-sm text-white font-medium">{e.event}</p><p className="text-xs text-slate-500">{e.detail}</p></div>
-            <div className="text-sm font-mono font-semibold text-amber-400">{e.price}</div>
-          </div>
-        ))}
-      </div>
+      )}
     </div>
   );
 }

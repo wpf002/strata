@@ -2,12 +2,13 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { Bot, Send, Sparkles, ExternalLink, AlertCircle, FileText, Download, Copy, Check, ChevronDown, ChevronUp, X, UserPlus, Loader2, History, Trash2, PlusCircle } from 'lucide-react';
 import { clsx } from 'clsx';
-import { mockProperties } from '../data/mockData';
 import {
   logActivity, listClientPortals, createClientPortal, addPortalProperty,
   saveCopilotConversation, listCopilotConversations, getCopilotConversation, deleteCopilotConversation,
+  getProperty,
 } from '../api/client';
 import type { ClientPortalSummary, CopilotConversationSummary } from '../api/client';
+import type { Property } from '../types';
 import { supabase } from '../lib/supabase';
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? '';
@@ -357,7 +358,19 @@ function MemoPanel({
 export default function CopilotPage() {
   const [searchParams] = useSearchParams();
   const propertyId = searchParams.get('property');
-  const contextProperty = propertyId ? mockProperties.find(p => p.id === propertyId) ?? null : null;
+  // Resolve the ?property= id against the API, not the mock set — arriving here
+  // from a live listing used to yield null, silently dropping the property
+  // banner and the memo's address. getProperty falls back to mock data itself
+  // when VITE_USE_MOCK is on, so both modes work through one path.
+  const [contextProperty, setContextProperty] = useState<Property | null>(null);
+  useEffect(() => {
+    if (!propertyId) { setContextProperty(null); return; }
+    let cancelled = false;
+    getProperty(propertyId)
+      .then(p => { if (!cancelled) setContextProperty(p); })
+      .catch(() => { if (!cancelled) setContextProperty(null); });
+    return () => { cancelled = true; };
+  }, [propertyId]);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');

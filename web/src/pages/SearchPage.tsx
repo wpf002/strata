@@ -5,9 +5,9 @@ import { Search, Map, List, TrendingUp, SlidersHorizontal, Star, Bell, X, Bookma
 import {
   getProperties, getSavedSearches, createSavedSearch, getWatchlists, createWatchlist,
   addToWatchlist, removeFromWatchlist, getSupportedMarkets, logActivity, removeActivity,
-  getDemandSignalsBatch,
+  getDemandSignalsBatch, getMarketFor,
 } from '../api/client';
-import type { Property, SearchFilters, SupportedMarket } from '../types';
+import type { Property, SearchFilters, SupportedMarket, MarketSummary } from '../types';
 import type { SavedSearch, DemandSignalSummary } from '../api/client';
 import { ScoreBadge, RiskBadge, RegimeBadge, FlagBadge, ConfidencePill, fmt } from '../components/UI';
 import { clsx } from 'clsx';
@@ -15,6 +15,29 @@ import MapView from '../components/MapView';
 
 const SORT_OPTIONS = ['Deal Score', 'Price', 'Cap Rate', 'Cash Flow', 'Days on Market', 'Motivation Score', 'Competition'];
 const STRATEGIES = ['LTR', 'STR', 'BRRRR', 'Flip', 'House Hack'];
+
+// Short label for the chip, canonical value for the API. The backend
+// normalizes dialects ("single_family" from RapidAPI vs "Single Family" from
+// the mock set), so send the readable form.
+const PROPERTY_TYPES = [
+  { label: 'SFR', value: 'Single Family' },
+  { label: 'Condo', value: 'Condo' },
+  { label: 'Townhouse', value: 'Townhouse' },
+  { label: 'Multi', value: 'Multi-Family' },
+];
+
+const REGIME_NOTE: Record<string, string> = {
+  'Hot': 'Inventory under 2 months — sellers hold leverage. Move decisively on strong deals.',
+  'Balanced': 'Supply and demand roughly matched. Good conditions for negotiated deals.',
+  'Cooling': 'Inventory rising or prices softening. Buyers are gaining leverage.',
+  "Buyer's Market": 'Excess inventory. Negotiate hard and require strong cash flow.',
+};
+
+/** "Dallas, TX" → "Dallas Market"; empty query → a neutral heading. */
+function marketLabelFromQuery(query?: string): string {
+  const city = query?.split(',')[0]?.trim();
+  return city ? `${city} Market` : 'Market';
+}
 
 // Per-strategy fit score (0-100) derived from property attributes. Used to
 // filter the Opportunity Feed when strategy pills are selected. Keep >= 50 for
@@ -220,6 +243,23 @@ export default function SearchPage() {
       .catch(err => { setFetchError(String(err)); setProperties([]); })
       .finally(() => setLoading(false));
   }, [filters]);
+
+  // Live market stats for the sidebar, keyed off whatever market is searched.
+  // Null means we don't cover it — the sidebar says so rather than inventing
+  // numbers, which is what it used to do (a permanent hardcoded Dallas).
+  const [market, setMarket] = useState<MarketSummary | null>(null);
+  const [marketLoading, setMarketLoading] = useState(false);
+  useEffect(() => {
+    const [city, state] = (filters.query ?? '').split(',').map(s => s.trim());
+    if (!city) { setMarket(null); return; }
+    let cancelled = false;
+    setMarketLoading(true);
+    getMarketFor(city, state)
+      .then(m => { if (!cancelled) setMarket(m); })
+      .catch(() => { if (!cancelled) setMarket(null); })
+      .finally(() => { if (!cancelled) setMarketLoading(false); });
+    return () => { cancelled = true; };
+  }, [filters.query]);
 
   // Fetch demand signals for the visible set so we can decorate + sort.
   useEffect(() => {
@@ -495,15 +535,42 @@ export default function SearchPage() {
           <div className="flex flex-col gap-1">
             <label className="text-xs text-slate-500 font-medium">Property Type</label>
             <div className="flex gap-2">
-              {['SFR', 'Condo', 'Duplex', 'Multi'].map(t => (
-                <button key={t} className="text-xs px-2.5 py-1.5 rounded border border-white/10 text-slate-400 hover:border-amber-500/30 hover:text-amber-400 transition-all">{t}</button>
-              ))}
+              {PROPERTY_TYPES.map(({ label, value }) => {
+                const active = filters.propertyTypes?.includes(value) ?? false;
+                return (
+                  <button
+                    key={value}
+                    aria-pressed={active}
+                    onClick={() => setFilters(f => {
+                      const current = f.propertyTypes ?? [];
+                      return {
+                        ...f,
+                        propertyTypes: active
+                          ? current.filter(t => t !== value)
+                          : [...current, value],
+                      };
+                    })}
+                    className={clsx(
+                      'text-xs px-2.5 py-1.5 rounded border transition-all',
+                      active
+                        ? 'bg-amber-500/15 text-amber-400 border-amber-500/40'
+                        : 'text-slate-400 border-white/10 hover:border-amber-500/30 hover:text-amber-400'
+                    )}
+                  >{label}</button>
+                );
+              })}
             </div>
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs text-slate-500 font-medium">Min Cap Rate</label>
-            <select aria-label="Minimum cap rate" className="strata-input w-28 text-sm py-1.5">
-              <option>Any</option><option>4%+</option><option>5%+</option><option>6%+</option><option>7%+</option>
+            <select
+              aria-label="Minimum cap rate"
+              className="strata-input w-28 text-sm py-1.5"
+              value={filters.minCapRate ?? 0}
+              onChange={e => setFilters(f => ({ ...f, minCapRate: +e.target.value }))}
+            >
+              <option value={0}>Any</option>
+              {[4, 5, 6, 7].map(v => <option key={v} value={v}>{v}%+</option>)}
             </select>
           </div>
           <div className="flex flex-col gap-1">
@@ -707,32 +774,43 @@ export default function SearchPage() {
         {/* Market sidebar (list view, desktop only) */}
         {view === 'list' && (
           <div className="hidden lg:block w-60 flex-shrink-0 border-l border-white/5 overflow-y-auto px-4 py-4">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Dallas Market</p>
-            <div className="space-y-0.5">
-              {[
-                { label: 'Regime', value: 'Balanced', color: 'text-amber-400' },
-                { label: 'Median Price', value: '$342K', color: 'text-white' },
-                { label: 'Price Trend 12mo', value: '+4.2%', color: 'text-emerald-400' },
-                { label: 'Inventory', value: '2.3 mo', color: 'text-white' },
-                { label: 'Avg DOM', value: '28 days', color: 'text-white' },
-                { label: 'List/Sale Ratio', value: '97.2%', color: 'text-white' },
-                { label: 'Cap Rate Median', value: '5.4%', color: 'text-amber-400' },
-                { label: 'Rent Growth 12mo', value: '+3.1%', color: 'text-emerald-400' },
-                { label: 'Vacancy Rate', value: '4.8%', color: 'text-white' },
-              ].map(m => (
-                <div key={m.label} className="flex justify-between items-center py-2 border-b border-white/5 last:border-0">
-                  <span className="text-xs text-slate-500">{m.label}</span>
-                  <span className={clsx('text-xs font-mono font-semibold', m.color)}>{m.value}</span>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+              {market ? `${market.city} Market` : marketLabelFromQuery(filters.query)}
+            </p>
+            {market ? (
+              <>
+                <div className="space-y-0.5">
+                  {[
+                    { label: 'Regime', value: market.regime, color: 'text-amber-400' },
+                    { label: 'Median Price', value: fmt.compact(market.medianPrice), color: 'text-white' },
+                    { label: 'Price Trend 12mo', value: fmt.signedPct(market.priceChange12Mo), color: market.priceChange12Mo >= 0 ? 'text-emerald-400' : 'text-red-400' },
+                    { label: 'Inventory', value: `${market.inventoryMonths.toFixed(1)} mo`, color: 'text-white' },
+                    { label: 'Avg DOM', value: `${Math.round(market.daysOnMarket)} days`, color: 'text-white' },
+                    { label: 'Cap Rate Median', value: fmt.pct(market.capRateMedian), color: 'text-amber-400' },
+                    { label: 'Rent Growth 12mo', value: fmt.signedPct(market.rentGrowth12Mo), color: market.rentGrowth12Mo >= 0 ? 'text-emerald-400' : 'text-red-400' },
+                    { label: 'Vacancy Rate', value: fmt.pct(market.vacancyRate), color: 'text-white' },
+                  ].map(m => (
+                    <div key={m.label} className="flex justify-between items-center py-2 border-b border-white/5 last:border-0">
+                      <span className="text-xs text-slate-500">{m.label}</span>
+                      <span className={clsx('text-xs font-mono font-semibold whitespace-nowrap', m.color)}>{m.value}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <div className="mt-4 p-3 rounded-lg border border-amber-500/20 bg-amber-500/5">
-              <div className="flex items-center gap-2 mb-1">
-                <TrendingUp size={12} className="text-amber-400" />
-                <span className="text-xs font-semibold text-amber-400">Market Alert</span>
-              </div>
-              <p className="text-xs text-slate-400">Inventory down 18% in 60 days. Act on quality deals before competition increases.</p>
-            </div>
+                <div className="mt-4 p-3 rounded-lg border border-amber-500/20 bg-amber-500/5">
+                  <div className="flex items-center gap-2 mb-1">
+                    <TrendingUp size={12} className="text-amber-400" />
+                    <span className="text-xs font-semibold text-amber-400">{market.regime} Market</span>
+                  </div>
+                  <p className="text-xs text-slate-400">{REGIME_NOTE[market.regime]}</p>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-slate-600 leading-relaxed py-2">
+                {marketLoading
+                  ? 'Loading market data…'
+                  : 'No market data for this search. STRATA tracks a fixed set of markets — see Market Pulse for the full list.'}
+              </p>
+            )}
 
             {/* Saved searches + watchlist counts */}
             <div className="mt-4 space-y-2">

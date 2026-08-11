@@ -5,12 +5,14 @@ property. A high score means the deal is getting analyzed by many others,
 so investors may want to move faster or look for an edge. A low score can
 actually be an opportunity — competition is limited.
 """
+import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..models.property import Property
 from ..models.user_property_activity import UserPropertyActivity
 from ..services.property_service import MOCK_PROPERTIES
 
@@ -85,15 +87,38 @@ def _vs_market_dom(dom: int | None, city: str | None) -> str:
     return "On pace"
 
 
-def _property_meta(pid: str) -> dict:
+async def _property_meta(db: AsyncSession, pid: str) -> dict:
+    """
+    City / DOM / price-drop count for the "vs market" note.
+
+    Reads the stored property first — live RapidAPI listings are cached there,
+    and looking only at MOCK_PROPERTIES meant every real listing silently came
+    back as "Baseline unavailable" with zero price drops. Mock is the fallback,
+    not the source.
+    """
+    try:
+        row = (
+            await db.execute(select(Property).where(Property.id == uuid.UUID(pid)))
+        ).scalar_one_or_none()
+    except (ValueError, AttributeError):
+        row = None  # non-UUID id — mock datasets use short slugs
+
+    if row is not None:
+        data = row.data or {}
+        return {
+            "city": row.city,
+            "days_on_market": data.get("days_on_market"),
+            "price_drops": data.get("price_reductions")
+            or (1 if data.get("has_price_reduction") else 0),
+        }
+
     p = next((x for x in MOCK_PROPERTIES if x["id"] == pid), None)
     if not p:
         return {"city": None, "days_on_market": None, "price_drops": 0}
-    price_drops = p.get("price_reductions") or (1 if p.get("has_price_reduction") else 0)
     return {
         "city": p.get("city"),
         "days_on_market": p.get("days_on_market"),
-        "price_drops": price_drops,
+        "price_drops": p.get("price_reductions") or (1 if p.get("has_price_reduction") else 0),
     }
 
 
@@ -128,7 +153,7 @@ def _score_from_counts(counts: dict[str, int]) -> int:
 async def get_demand_signal(db: AsyncSession, property_id: str) -> dict:
     counts = await _distinct_counts_by_type(db, property_id)
     score = _score_from_counts(counts)
-    meta = _property_meta(property_id)
+    meta = await _property_meta(db, property_id)
 
     return {
         "propertyId": property_id,

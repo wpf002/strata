@@ -161,3 +161,46 @@ async def test_demand_signals_batch_aggregates_per_property(client):
         assert body["p2"]["demandScore"] < 35   # Low
     finally:
         app.dependency_overrides.clear()
+
+
+# ── _property_meta reads real properties, not just the mock set ──────────────
+# It previously looked only in MOCK_PROPERTIES, so every live RapidAPI listing
+# came back as "Baseline unavailable" with zero price drops.
+
+async def test_property_meta_prefers_the_stored_property():
+    from unittest.mock import patch
+    from backend.services import demand_service
+
+    pid = str(uuid.uuid4())
+    stored = MagicMock()
+    stored.city = "Phoenix"
+    stored.data = {"days_on_market": 41, "price_reductions": 2}
+
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = stored
+    db.execute = AsyncMock(return_value=result)
+
+    meta = await demand_service._property_meta(db, pid)
+    assert meta == {"city": "Phoenix", "days_on_market": 41, "price_drops": 2}
+
+
+async def test_property_meta_falls_back_to_mock_for_slug_ids():
+    from backend.services import demand_service
+    from backend.services.property_service import MOCK_PROPERTIES
+
+    db = AsyncMock()  # never queried — "p1" isn't a UUID
+    meta = await demand_service._property_meta(db, MOCK_PROPERTIES[0]["id"])
+    assert meta["city"] == MOCK_PROPERTIES[0]["city"]
+
+
+async def test_property_meta_unknown_id_is_empty_not_invented():
+    from backend.services import demand_service
+
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    db.execute = AsyncMock(return_value=result)
+
+    meta = await demand_service._property_meta(db, str(uuid.uuid4()))
+    assert meta == {"city": None, "days_on_market": None, "price_drops": 0}

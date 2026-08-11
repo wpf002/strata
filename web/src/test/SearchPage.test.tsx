@@ -62,7 +62,18 @@ describe('SearchPage — render', () => {
   it('renders market sidebar', async () => {
     renderSearch();
     await waitFor(() => expect(screen.getByText('Dallas Market')).toBeInTheDocument());
-    expect(screen.getByText('Regime')).toBeInTheDocument();
+  });
+
+  // The sidebar used to render a fixed Dallas panel — $342K median, +4.2%,
+  // 2.3mo inventory — no matter what was searched or whether any market data
+  // existed. With no market endpoint reachable it must say so, not invent.
+  it('says market data is unavailable rather than showing invented figures', async () => {
+    renderSearch();
+    await waitFor(() => expect(screen.getByText(/No market data for this search/i)).toBeInTheDocument());
+    expect(screen.queryByText('$342K')).not.toBeInTheDocument();
+    expect(screen.queryByText('+4.2%')).not.toBeInTheDocument();
+    expect(screen.queryByText('2.3 mo')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Inventory down 18%/i)).not.toBeInTheDocument();
   });
 });
 
@@ -79,6 +90,27 @@ describe('SearchPage — filters', () => {
     const strBtn = screen.getByRole('button', { name: 'STR' });
     fireEvent.click(strBtn);
     expect(strBtn.className).toMatch(/amber/);
+  });
+
+  // Both of these rendered as interactive but had no handler at all.
+  it('property type chips toggle and report pressed state', async () => {
+    renderSearch();
+    fireEvent.click(screen.getByRole('button', { name: /Filters/ }));
+    const condo = await screen.findByRole('button', { name: 'Condo' });
+    expect(condo).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(condo);
+    await waitFor(() => expect(condo).toHaveAttribute('aria-pressed', 'true'));
+    fireEvent.click(condo);
+    await waitFor(() => expect(condo).toHaveAttribute('aria-pressed', 'false'));
+  });
+
+  it('min cap rate select holds its value', async () => {
+    renderSearch();
+    fireEvent.click(screen.getByRole('button', { name: /Filters/ }));
+    const select = await screen.findByLabelText('Minimum cap rate') as HTMLSelectElement;
+    expect(select.value).toBe('0');
+    fireEvent.change(select, { target: { value: '6' } });
+    await waitFor(() => expect(select.value).toBe('6'));
   });
 });
 

@@ -1,6 +1,6 @@
 import type {
   Property, UnderwritingInputs, UnderwritingOutputs, Portfolio, MarketData, SearchFilters,
-  SupportedMarket, OffMarketSignalResult,
+  SupportedMarket, OffMarketSignalResult, MarketSummary,
 } from '../types';
 import { mockProperties, mockPortfolioHoldings, mockMarketData } from '../data/mockData';
 import { supabase } from '../lib/supabase';
@@ -65,6 +65,14 @@ export async function getProperties(filters?: Partial<SearchFilters>): Promise<P
     let results = [...mockProperties];
     if (filters?.minDealScore) results = results.filter(p => p.dealScore >= filters.minDealScore!);
     if (filters?.maxPrice) results = results.filter(p => p.price <= filters.maxPrice!);
+    // Mirror the server-side filters so the controls visibly work in mock mode
+    // too — otherwise the type chips and cap-rate select look inert offline.
+    if (filters?.minCapRate) results = results.filter(p => p.capRate >= filters.minCapRate!);
+    if (filters?.propertyTypes?.length) {
+      const norm = (s: string) => s.toLowerCase().replace(/[\s-]+/g, '_');
+      const wanted = new Set(filters.propertyTypes.map(norm));
+      results = results.filter(p => wanted.has(norm(p.type)));
+    }
     if (filters?.sortBy === 'Deal Score') results.sort((a, b) => b.dealScore - a.dealScore);
     if (filters?.sortBy === 'Price') results.sort((a, b) => a.price - b.price);
     if (filters?.sortBy === 'Cap Rate') results.sort((a, b) => b.capRate - a.capRate);
@@ -288,6 +296,32 @@ function apiToProperty(p: any): Property {
 export async function getSupportedMarkets(): Promise<SupportedMarket[]> {
   const raw = await get<{ markets: SupportedMarket[] }>('/markets/supported');
   return raw.markets;
+}
+
+export async function getMarketSummary(): Promise<MarketSummary[]> {
+  return get<MarketSummary[]>('/market/summary');
+}
+
+/**
+ * The live summary for one market, or null when we don't cover it.
+ *
+ * Callers must render an explicit "unavailable" state on null rather than
+ * substituting a plausible number — showing invented market stats next to real
+ * listings is exactly the bug this replaced.
+ */
+export async function getMarketFor(city?: string | null, state?: string | null): Promise<MarketSummary | null> {
+  if (!city) return null;
+  const wantedCity = city.trim().toLowerCase();
+  const wantedState = state?.trim().toLowerCase();
+  try {
+    const all = await getMarketSummary();
+    return all.find(m =>
+      m.city.toLowerCase() === wantedCity &&
+      (!wantedState || m.state.toLowerCase() === wantedState)
+    ) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Off-market signals ───────────────────────────────────────────────────────

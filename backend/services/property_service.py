@@ -18,6 +18,55 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..models.property import Property
+
+# Property-type values arrive in three dialects: the UI's labels
+# ("Single Family"), the mock dataset's ("Single Family", "Condo"), and
+# realtor.com's via RapidAPI ("single_family", "condos", "townhomes"). Exact
+# string matching silently returned zero results across that boundary, so both
+# sides of the comparison get normalized to a canonical token first.
+_TYPE_ALIASES = {
+    "single family": "single_family",
+    "single_family": "single_family",
+    "singlefamily": "single_family",
+    "sfr": "single_family",
+    "house": "single_family",
+    "condo": "condo",
+    "condos": "condo",
+    "condominium": "condo",
+    "co_op": "condo",
+    "townhouse": "townhouse",
+    "townhouses": "townhouse",
+    "townhome": "townhouse",
+    "townhomes": "townhouse",
+    "multi family": "multi_family",
+    "multi-family": "multi_family",
+    "multi_family": "multi_family",
+    "multifamily": "multi_family",
+    "multi": "multi_family",
+    "duplex": "multi_family",
+    "triplex": "multi_family",
+    "fourplex": "multi_family",
+    "apartment": "multi_family",
+    "land": "land",
+    "farm": "land",
+    "mobile": "mobile",
+}
+
+
+def normalize_property_type(value: str | None) -> str | None:
+    """Map any dialect of a property-type string to a canonical token."""
+    if not value:
+        return None
+    key = re.sub(r"\s+", " ", str(value).strip().lower())
+    return _TYPE_ALIASES.get(key, key.replace(" ", "_").replace("-", "_"))
+
+
+def matches_property_types(value: str | None, requested: list[str] | None) -> bool:
+    """True when `value` is one of the `requested` types, dialect-insensitively."""
+    if not requested:
+        return True
+    wanted = {normalize_property_type(t) for t in requested}
+    return normalize_property_type(value) in wanted
 from ..schemas.property import PropertyResponse, RiskFlag, OffMarketSignal
 from . import off_market_service
 from .markets_service import resolve_market
@@ -283,7 +332,7 @@ async def search_properties(
     if min_cap_rate is not None:
         results = [p for p in results if p["cap_rate"] >= min_cap_rate]
     if property_types:
-        results = [p for p in results if p["type"] in property_types]
+        results = [p for p in results if matches_property_types(p.get("type"), property_types)]
 
     sort_map = {
         "Deal Score": (lambda p: p["deal_score"], True),
@@ -839,7 +888,7 @@ def _apply_rapidapi_filters_sort(
     if min_cap_rate is not None:
         properties = [p for p in properties if p.cap_rate >= min_cap_rate]
     if property_types:
-        properties = [p for p in properties if p.type in property_types]
+        properties = [p for p in properties if matches_property_types(p.type, property_types)]
 
     sort_map = {
         "Deal Score": (lambda p: p.deal_score, True),

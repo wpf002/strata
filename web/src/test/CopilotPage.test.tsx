@@ -50,17 +50,24 @@ describe('CopilotPage — initial state', () => {
 });
 
 describe('CopilotPage — property context banner', () => {
-  it('shows banner when ?property=p1 is in URL', () => {
+  // The context property is now fetched through the API layer rather than
+  // looked up in the mock array, so the banner resolves asynchronously.
+  it('shows banner when ?property=p1 is in URL', async () => {
     renderCopilot('?property=p1');
-    expect(screen.getByText('Analyzing:')).toBeInTheDocument();
-    // banner shows address in a <span> with specific class — use getAllByText and check first match
+    await waitFor(() => expect(screen.getByText('Analyzing:')).toBeInTheDocument());
     const matches = screen.getAllByText(/4521 Oak Creek Drive/);
     expect(matches.length).toBeGreaterThan(0);
   });
 
-  it('shows View Intelligence link', () => {
+  it('shows View Intelligence link', async () => {
     renderCopilot('?property=p1');
-    expect(screen.getByText('View Intelligence')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('View Intelligence')).toBeInTheDocument());
+  });
+
+  it('shows no banner for a property id the API does not know', async () => {
+    renderCopilot('?property=does-not-exist');
+    // Give the lookup a chance to resolve and reject.
+    await waitFor(() => expect(screen.queryByText('Analyzing:')).not.toBeInTheDocument());
   });
 
   it('does not show banner when no property param', () => {

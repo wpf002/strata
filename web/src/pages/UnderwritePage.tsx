@@ -1034,10 +1034,27 @@ export default function UnderwritePage() {
             <ChevronDown size={12} className={clsx('transition-transform', showAdvanced && 'rotate-180')} />
           </button>
           {showAdvanced && (
+            /* These are the constants the backend model actually applies.
+               This panel used to also list an appreciation rate, rent growth,
+               turnover cost and hold period — none of which appear anywhere in
+               underwriting_service, so they described a model that wasn't
+               running. */
             <div className="glass rounded-xl p-4 space-y-2">
-              {[['Appreciation Rate/yr', '3.0%'], ['Rent Growth/yr', '2.5%'], ['Turnover Cost', '$1,200'], ['Hold Period', '7 years'], ['Closing Costs', '$8,500']].map(([k, v]) => (
-                <div key={k} className="flex justify-between"><span className="text-xs text-slate-500">{k}</span><span className="text-xs font-mono text-amber-400">{v}</span></div>
+              {[
+                ['Closing Costs', fmt.currency(8500)],
+                ['Loan Term', inputs.loanType === '15yr Fixed' ? '15 years' : '30 years'],
+                ['Bear Scenario', 'rent −10% · vacancy +4pts · appr. −2%'],
+                ['Base Scenario', 'rent as entered · appr. +3%'],
+                ['Bull Scenario', 'rent +10% · vacancy −2pts · appr. +6%'],
+              ].map(([k, v]) => (
+                <div key={k} className="flex justify-between gap-3">
+                  <span className="text-xs text-slate-500 flex-shrink-0">{k}</span>
+                  <span className="text-xs font-mono text-amber-400 text-right">{v}</span>
+                </div>
               ))}
+              <p className="text-[10px] text-slate-600 pt-1 leading-relaxed">
+                Appreciation is applied only in the scenario IRR, not to cash flow.
+              </p>
             </div>
           )}
         </div>

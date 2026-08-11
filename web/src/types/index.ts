@@ -171,6 +171,22 @@ export interface SearchFilters {
   minMotivationScore?: number;
 }
 
+// One market's live summary, from GET /market/summary. Shared by Market Pulse,
+// the Search sidebar, and the Intelligence market tab — all three previously
+// showed their own hardcoded copy of these numbers.
+export interface MarketSummary {
+  city: string;
+  state: string;
+  regime: 'Hot' | 'Balanced' | 'Cooling' | "Buyer's Market";
+  medianPrice: number;
+  priceChange12Mo: number;
+  inventoryMonths: number;
+  daysOnMarket: number;
+  capRateMedian: number;
+  rentGrowth12Mo: number;
+  vacancyRate: number;
+}
+
 // API response wrapper
 export interface ApiResponse<T> {
   data: T;
