@@ -1,5 +1,64 @@
 # STRATA — Progress Log
 
+## Sprint 8 — August 2026 — Firebase Removal
+
+Push notifications (Sprint 4 Task 7 / Sprint 5 Task 6) are gone. They were the
+only thing Firebase was used for, and the send path had never actually worked:
+`alert_service.send_push_notification` read `settings.firebase_server_key`, which
+was never defined in `config.py`, so every send short-circuited to a debug log.
+
+### Removed — mobile
+
+- `mobile/src/services/notifications.ts` (whole file)
+- `setupPushNotifications` import + call in `mobile/App.tsx`
+- `registerPushToken` in `mobile/src/api.ts`
+- Deps `@react-native-firebase/app` and `@react-native-firebase/messaging`
+- Placeholder configs `android/app/google-services.json` and
+  `ios/StrataApp/GoogleService-Info.plist` (both were dummy values, no real
+  credentials)
+- `SETUP.md` §5 (Firebase credentials, Gradle plugin wiring, `[FIRApp configure]`)
+  deleted and later sections renumbered — first native build no longer needs a
+  Firebase project at all
+
+### Removed — backend
+
+- `send_push_notification` and the unused `send_alert` wrapper in
+  `services/alert_service.py`. The saved-search job calls
+  `send_saved_search_alert` directly, so email alerts are unaffected
+- `POST /alerts/test-push` in `main.py`
+- `PUT /users/me/push-token` in `routers/users.py`
+- `push_token` / `push_platform` from the `User` model
+
+**Left in place:** migration `004_push_tokens.py` and the two nullable columns it
+added. Applied migrations aren't rewritten retroactively; the columns are inert.
+Add a new migration if you want them dropped.
+
+### Separate fix — mobile app couldn't bundle
+
+Verifying the removal with Metro surfaced a pre-existing break unrelated to
+Firebase: `react-native-screens` was specified as `^4.3.0`, which floated to
+**4.24.0**, whose codegen annotations RN 0.76.7 can't parse
+(`Unknown prop type for "onAppear": "undefined"`). Reproduced with a one-line
+probe importing only that package, so it predates this change.
+
+Pinned to `~4.5.0` — tilde, not caret, so a lock-free install can't float
+forward into the same wall again.
+
+### Verification
+
+- `mobile/npx tsc --noEmit` → 0 errors
+- **Metro bundles both platforms** (iOS 1.55 MB, Android) — this is the first
+  time the mobile JS bundle has been confirmed to build
+- Zero `react-native-firebase` references in the output bundle
+- `npm install` resolves with no Firebase in the tree or lockfile
+- Backend: **107 pytest pass**, app boots with 75 routes, none matching `push`
+- Web: **85 vitest pass**, 0 TypeScript errors (untouched)
+
+### Still not verified
+
+Native `run-ios` / `run-android` on a device or simulator. The JS bundles now,
+but the Xcode / Gradle builds themselves still haven't been exercised.
+
 ## Sprint 8 — August 2026 — Mobile Web Polish
 
 Closes three of the four items left open under "Not yet done" in the Sprint 6

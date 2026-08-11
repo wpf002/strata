@@ -164,10 +164,3 @@ export async function getPortfolio(): Promise<PortfolioEntry[]> {
   }));
 }
 
-export async function registerPushToken(token: string, platform: 'ios' | 'android'): Promise<void> {
-  await request('/users/me/push-token', {
-    method: 'PUT',
-    body: JSON.stringify({ token, platform }),
-  });
-}
-

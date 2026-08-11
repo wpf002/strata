@@ -8,7 +8,6 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import { supabase } from './src/supabase';
 import { setUnauthorizedHandler } from './src/api';
-import { setupPushNotifications } from './src/services/notifications';
 import LoginScreen from './src/screens/LoginScreen';
 import SearchScreen from './src/screens/SearchScreen';
 import IntelligenceScreen from './src/screens/IntelligenceScreen';
@@ -122,9 +121,6 @@ export default function App() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
-      if (s) {
-        setupPushNotifications().catch(() => {});
-      }
     });
 
     setUnauthorizedHandler(() => {

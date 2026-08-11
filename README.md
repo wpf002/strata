@@ -77,7 +77,10 @@ Backend secrets go in `backend/.env` (`DATABASE_URL`, `SUPABASE_URL`,
 ### Mobile
 - **Search Screen** — opportunity feed with deal scores, risk flags, quick actions
 - **Underwrite Screen** — full live underwriting engine with native sliders
-- **Intelligence · Portfolio · Copilot** screens, bottom tab navigation, push alerts
+- **Intelligence · Portfolio · Copilot** screens, bottom tab navigation
+
+Saved-search alerts are email-only (SendGrid). There is no push notification
+channel — Firebase was removed; see the Sprint 8 notes in `PROGRESS.md`.
 
 ## Next Steps
 1. Verify the native mobile builds on device (see `mobile/SETUP.md`)

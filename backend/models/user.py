@@ -16,8 +16,9 @@ class User(Base):
     name: Mapped[str | None] = mapped_column(String(255))
     subscription_tier: Mapped[str] = mapped_column(String(50), default="free")
     strategy_settings: Mapped[dict] = mapped_column(JSONB, default=dict)
-    push_token: Mapped[str | None] = mapped_column(String(512))
-    push_platform: Mapped[str | None] = mapped_column(String(20))
+    # NOTE: the DB still has nullable `push_token` / `push_platform` columns from
+    # migration 004. Push (Firebase Cloud Messaging) was removed; the columns are
+    # left in place rather than dropped. Add a migration if you want them gone.
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
