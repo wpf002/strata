@@ -28,6 +28,13 @@ function Skeleton({ className }: { className?: string }) {
 
 // Small attribution chip — surfaces where a number actually comes from. Helps
 // users trust live data and recognize when a value is a model fallback.
+// Expense assumptions for the Financials tab's quick P&L. These were inline
+// magic numbers (`p.price * 0.022 / 12 + 140`) rendered as if they were the
+// property's real tax and insurance figures.
+const TAX_RATE_PCT = 2.2;
+const MAINT_RATE_PCT = 1.0;
+const INSURANCE_MONTHLY = 140;
+
 function DataSource({ label }: { label: string }) {
   return <p className="text-[10px] text-slate-600 mt-2 leading-tight">{label}</p>;
 }
@@ -783,13 +790,23 @@ function OverviewTab({ p }: { p: Property & { rentEstimate?: any; nearbySchools?
             <div className="text-2xl font-bold font-mono text-amber-400">{p.neighborhoodScore || '—'}</div>
             <div className="flex-1"><ProgressBar value={p.neighborhoodScore ?? 0} color="gold" /></div>
           </div>
-          {[{ label: 'Schools', value: 72 }, { label: 'Safety', value: p.riskScore > 50 ? 55 : 78 }, { label: 'Walkability', value: 61 }, { label: 'Amenities', value: 80 }].map(s => (
-            <div key={s.label} className="flex items-center gap-2 mb-2">
-              <span className="text-xs text-slate-500 w-20">{s.label}</span>
-              <div className="flex-1"><ProgressBar value={s.value} color={s.value >= 70 ? 'green' : s.value >= 50 ? 'gold' : 'red'} /></div>
-              <span className="text-xs font-mono text-slate-400 w-6 text-right">{s.value}</span>
+          {/* Schools 72 / Walkability 61 / Amenities 80 were constants — the
+              same four bars on every property, with only Safety flipping
+              between two values off the risk score. We have no walkability or
+              amenities source, so the panel reports what's actually known. */}
+          <div className="space-y-1.5">
+            <div className="flex justify-between items-center py-1.5 border-b border-white/5">
+              <span className="text-xs text-slate-500">Nearby schools</span>
+              <span className="text-xs font-mono text-slate-300">
+                {schools.length > 0 ? `${schools.length} within range` : '—'}
+              </span>
             </div>
-          ))}
+            <div className="flex justify-between items-center py-1.5">
+              <span className="text-xs text-slate-500">Risk score</span>
+              <span className="text-xs font-mono text-slate-300">{p.riskScore}/100</span>
+            </div>
+          </div>
+          <DataSource label="Neighborhood score: STRATA composite · Schools: NCES" />
         </div>
       </div>
     </div>
@@ -950,7 +967,11 @@ function FinancialsTab({ p }: { p: Property }) {
   const mr = rate / 100 / 12;
   const mtg = loan * (mr * Math.pow(1 + mr, 360)) / (Math.pow(1 + mr, 360) - 1);
   const egi = p.rentEstMid * (1 - vacPct / 100);
-  const opex = egi * (mgmtPct / 100) + (p.price * 0.022 / 12) + 140 + (p.price * 0.01 / 12);
+  // Estimates, not this property's actual bills — surfaced under the P&L so
+  // the numbers aren't mistaken for real tax and insurance records.
+  const taxMonthly = (p.price * TAX_RATE_PCT / 100) / 12;
+  const maintMonthly = (p.price * MAINT_RATE_PCT / 100) / 12;
+  const opex = egi * (mgmtPct / 100) + taxMonthly + INSURANCE_MONTHLY + maintMonthly;
   const noi = egi - opex;
   const cf = noi - mtg;
   const coc = ((cf * 12) / (down + 8500)) * 100;
@@ -994,8 +1015,8 @@ function FinancialsTab({ p }: { p: Property }) {
             <div>
               <p className="text-xs text-red-400 font-semibold mb-2 uppercase tracking-wide">Expenses</p>
               <MetricRow label="Mortgage" value={fmt.currency(mtg)} />
-              <MetricRow label="Tax + Insurance" value={fmt.currency(p.price * 0.022 / 12 + 140)} />
-              <MetricRow label="Mgmt + Maint." value={fmt.currency(opex - (p.price * 0.022 / 12 + 140))} />
+              <MetricRow label="Tax + Insurance" value={fmt.currency(taxMonthly + INSURANCE_MONTHLY)} />
+              <MetricRow label="Mgmt + Maint." value={fmt.currency(egi * (mgmtPct / 100) + maintMonthly)} />
               <MetricRow label="Total" value={fmt.currency(mtg + opex)} highlight />
             </div>
           </div>
@@ -1003,6 +1024,11 @@ function FinancialsTab({ p }: { p: Property }) {
             <span className="text-sm font-semibold text-white">Net Monthly Cash Flow</span>
             <span className={clsx('text-2xl font-bold font-mono', cf >= 0 ? 'text-emerald-400' : 'text-red-400')}>{cf >= 0 ? '+' : ''}{fmt.currency(cf)}</span>
           </div>
+          <p className="text-[10px] text-slate-600 mt-3 leading-relaxed">
+            Assumes property tax at {TAX_RATE_PCT}% of price/yr, insurance at{' '}
+            {fmt.currency(INSURANCE_MONTHLY)}/mo, and maintenance at {MAINT_RATE_PCT}% of price/yr.
+            Not this property's actual bills — adjust in Underwrite for a full model.
+          </p>
         </div>
       </div>
     </div>
