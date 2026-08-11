@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Verify the Supabase project this repo points at is actually alive and wired
+# correctly. Run it after creating or rotating a project:
+#
+#   bin/check-supabase
+#
+# Checks, in order of "what breaks first":
+#   1. env files exist and the vars are set
+#   2. web and backend agree on the same project ref
+#   3. the anon key is a real JWT for that ref, unexpired, and its signature
+#      verifies against SUPABASE_JWT_SECRET
+#   4. the project hostnames resolve in DNS
+#   5. GoTrue answers on /auth/v1/health
+#   6. PostgREST answers on /rest/v1/ with the anon key
+#   7. Postgres accepts a connection and runs `select 1`
+#   8. alembic is at head
+exec "$(dirname "${BASH_SOURCE[0]}")/../backend/.venv/bin/python" \
+     "$(dirname "${BASH_SOURCE[0]}")/check_supabase.py" "$@"

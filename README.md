@@ -50,6 +50,21 @@ Backend secrets go in `backend/.env` (`DATABASE_URL`, `SUPABASE_URL`,
 `SUPABASE_JWT_SECRET`, `ANTHROPIC_API_KEY`, `RAPIDAPI_KEY`, `RENTCAST_API_KEY`,
 `SENDGRID_API_KEY`). All are git-ignored.
 
+## Supabase
+
+```bash
+bin/check-supabase
+```
+
+Verifies the whole chain — env vars, project ref agreement, anon key signature,
+DNS, GoTrue, PostgREST, Postgres, alembic — and names the broken link.
+
+Free-tier projects **auto-pause when idle**, and a paused project stops resolving
+in DNS, so everything fails at once in a way that looks like bad config. The
+backend runs a keepalive ping every 12h to avoid that, reported at `GET /health`
+— but only while the API is actually running. If it's been off for a while,
+check the dashboard and resume the project there.
+
 ## Tech Stack
 
 | Layer | Technology |

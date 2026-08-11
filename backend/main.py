@@ -1,5 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,14 +19,25 @@ log = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from .background.search_alerts import run_saved_search_alerts
+    from .background.keepalive import ping_supabase, KEEPALIVE_INTERVAL_HOURS
 
     scheduler = AsyncIOScheduler()
     scheduler.add_job(run_saved_search_alerts, "interval", hours=6, id="search_alerts")
+    # Keeps the Supabase project from auto-pausing. Fires once at startup too,
+    # so a short-lived process still registers activity.
+    scheduler.add_job(
+        ping_supabase,
+        "interval",
+        hours=KEEPALIVE_INTERVAL_HOURS,
+        id="supabase_keepalive",
+        next_run_time=datetime.now(timezone.utc),
+    )
     scheduler.start()
 
     job = scheduler.get_job("search_alerts")
     next_run = job.next_run_time if job else "unknown"
     print(f"Alert scheduler started. Next run: {next_run}", flush=True)
+    print(f"Supabase keepalive every {KEEPALIVE_INTERVAL_HOURS}h", flush=True)
 
     yield
 
@@ -69,7 +81,13 @@ app.include_router(leads.router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "environment": settings.environment}
+    from .background.keepalive import keepalive_status
+
+    return {
+        "status": "ok",
+        "environment": settings.environment,
+        "supabaseKeepalive": keepalive_status(),
+    }
 
 
 class TestEmailRequest(BaseModel):

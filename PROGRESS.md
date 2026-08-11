@@ -1,5 +1,64 @@
 # STRATA — Progress Log
 
+## Sprint 8 — August 2026 — Supabase Health Check + Keepalive
+
+### What happened
+
+The project `mawabokdbrmzegjtvzyz` had **auto-paused**. A paused Supabase project
+loses DNS entirely — `mawabokdbrmzegjtvzyz.supabase.co` returned NXDOMAIN from
+8.8.8.8, so nothing could connect and the failure looked like a config problem
+rather than a paused project. Resuming it from the dashboard fixed it.
+
+### `bin/check-supabase`
+
+New diagnostic that walks the whole chain and says exactly which link is broken:
+
+1. env files exist, vars set and not placeholders
+2. web and backend point at the same project ref
+3. anon key is a JWT for that ref, role `anon`, unexpired, signature verifies
+   against `SUPABASE_JWT_SECRET`
+4. API and DB hostnames resolve (this is the check that catches a paused project)
+5. GoTrue `/auth/v1/health`
+6. PostgREST accepts the anon key
+7. Postgres connects and counts public tables
+8. alembic is at head
+
+Secrets print as an 8-char fingerprint, never in full. Exits non-zero on failure.
+Two probes needed fixing after first contact with a live project: GoTrue rejects
+`/auth/v1/health` without an `apikey` header, and `/rest/v1/` root is
+service_role-only by design, so it probes a real table instead.
+
+Current state: **all 14 checks pass.**
+
+### Keepalive job — `backend/background/keepalive.py`
+
+`ping_supabase()` runs `select 1` plus a catalog read every 12h on the existing
+APScheduler, with `next_run_time=now` so a short-lived process still registers
+activity at startup. Failures are logged and swallowed — an exception escaping
+into the scheduler would kill the timer that prevents the pause.
+
+`GET /health` now reports `supabaseKeepalive: {intervalHours, lastPing,
+consecutiveFailures}`.
+
+**This only works while the backend is running.** If the API is off for the whole
+idle window the project still pauses; the job is not a substitute for something
+always-on.
+
+### Web fallbacks
+
+- Mock mode (`VITE_USE_MOCK=true`) now bypasses the auth gate. Previously the app
+  gated on a Supabase session even with no backend in play, so a dead project
+  made it impossible to open at all
+- `AuthContext` translates supabase-js's bare "Failed to fetch" into a message
+  naming the project URL and pointing at `bin/check-supabase`
+
+### Verification
+
+- `bin/check-supabase` → 14/14 pass against the live project
+- Real `ping_supabase()` against Supabase → OK
+- API boots, scheduler registers the job, `/health` shows a real `lastPing`
+- Backend **111 pytest pass** (107 → 111, +4 keepalive), web **85 vitest**, 0 tsc errors
+
 ## Sprint 8 — August 2026 — Firebase Removal
 
 Push notifications (Sprint 4 Task 7 / Sprint 5 Task 6) are gone. They were the

@@ -33,7 +33,11 @@ export default function App() {
   const path = typeof window !== 'undefined' ? window.location.pathname : '';
   const isPublic = path.startsWith('/portal/') || path.startsWith('/reports/');
 
-  if (!session && !isPublic) {
+  // Mock mode runs entirely off src/data/mockData.ts, so there is no Supabase to
+  // authenticate against. Gating on a session would make the app unopenable.
+  const mockMode = import.meta.env.VITE_USE_MOCK === 'true';
+
+  if (!session && !isPublic && !mockMode) {
     return <LoginPage />;
   }
 
