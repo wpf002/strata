@@ -12,7 +12,7 @@ cd mobile
 npm install
 ```
 
-This pulls React Navigation, `react-native-config`, the URL polyfill that
+This pulls React Navigation, `react-native-dotenv`, the URL polyfill that
 supabase-js needs, and `@react-native-community/cli` (autolinking uses it —
 without it `pod install` fails with "In order to autolink using Cocoapods…").
 
@@ -30,9 +30,10 @@ SUPABASE_ANON_KEY=<your Supabase anon key>
 API_BASE_URL=http://localhost:8083        # match whatever STRATA_API_PORT you run
 ```
 
-Values are inlined at build time by `react-native-config`. Editing `.env` and
-reloading does nothing — you have to **rebuild**. Without a `.env` the app
-crashes on launch with "supabaseKey is required".
+Values are inlined at build time by `react-native-dotenv` (a Babel transform —
+see `babel.config.js`). Editing `.env` and reloading does nothing; restart Metro
+with `--reset-cache` and rebuild. Without a `.env` the app warns in the console
+and auth fails.
 
 The iOS simulator shares the host network, so `localhost` reaches the dev API.
 A physical device does not — use the Mac's LAN IP there.
@@ -71,24 +72,47 @@ Re-run `pod install` after adding any dependency with native code.
 npx react-native run-android
 ```
 
-**Not yet verified** — no Android SDK on the machine this was set up from. The
-Gradle project is configured and autolinking is wired; what's missing is the
-toolchain. You need:
+**Verified working** — API 35 emulator (Pixel 7, arm64), Gradle build via
+JDK 17. Toolchain, one-time:
 
-- **Android Studio** (or the standalone command-line tools), then via SDK
-  Manager: **SDK Platform 35** (`compileSdkVersion`), build-tools, and
-  **NDK 26.1.10909125** (pinned in `android/build.gradle`).
-- `ANDROID_HOME` exported, e.g. `export ANDROID_HOME=$HOME/Library/Android/sdk`.
-- `android/local.properties` with `sdk.dir=/Users/<you>/Library/Android/sdk`
-  (Android Studio writes this for you on first open).
-- **JDK 17.** React Native 0.76's Gradle build expects 17; a much newer JDK on
-  `PATH` (this machine has 25) will fail the build. Point `JAVA_HOME` at 17 —
-  Android Studio's bundled JDK is the easy option.
-- An emulator (AVD) or a connected device.
+```bash
+brew install openjdk@17
+# Command-line tools, if you don't want the full Android Studio:
+#   https://developer.android.com/studio#command-line-tools-only
+#   unzip into ~/Library/Android/sdk/cmdline-tools/latest
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17
+export ANDROID_HOME=$HOME/Library/Android/sdk
+export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 
-Expect the same two classes of problem iOS hit: a missing autolinking CLI
-(already fixed in `package.json`) and native config that only takes effect on a
-full rebuild.
+yes | sdkmanager --licenses
+sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" \
+           "emulator" "system-images;android-35;google_apis;arm64-v8a"
+avdmanager create avd -n strata_pixel -k "system-images;android-35;google_apis;arm64-v8a" -d pixel_7
+echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+```
+
+Then:
+
+```bash
+emulator -avd strata_pixel &
+npx react-native start &
+cd android && ./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb reverse tcp:8081 tcp:8081     # Metro
+adb reverse tcp:8083 tcp:8083     # the STRATA API
+adb shell am start -n com.strataapp/.MainActivity
+```
+
+Notes from getting this working the first time:
+
+- **JDK 17 specifically.** RN 0.76's Gradle rejects much newer JDKs; this
+  machine's default is 25, so `JAVA_HOME` has to be set explicitly.
+- **The NDK isn't needed.** `android/build.gradle` pins
+  `ndkVersion = "26.1.10909125"`, but nothing in the dependency tree builds
+  native code from source, and the build succeeds without it installed.
+- **`adb reverse` is required** for both Metro and the API — the emulator
+  can reach the host as `10.0.2.2`, but the reverse tunnels keep `localhost`
+  working so one `.env` serves both platforms.
 
 ## 5. Android release signing (for shipping to the Play Store)
 
@@ -135,14 +159,21 @@ at runtime, so the value is baked into the binary.
   `@react-native-community/cli` is missing. `npm install` should supply it; it
   is a devDependency as of the first verified build.
 - **App launches to a red screen: "supabaseKey is required"** — no `.env`, or
-  you edited `.env` without rebuilding.
+  you edited `.env` without restarting Metro with `--reset-cache` and
+  rebuilding.
+- **Android-only red screen: "Cannot read property 'getConfig' of null"** —
+  you're back on `react-native-config`. Its Android side doesn't autolink
+  (`npx react-native config` reports `android: null`), so under the New
+  Architecture its TurboModule never registers. That's why config is a Babel
+  transform now, with no native module on either platform.
 - **Red screen: "URL.protocol is not implemented"** — the
   `react-native-url-polyfill/auto` import at the top of `index.js` was removed.
   supabase-js constructs a `URL` and React Native's built-in is a stub.
 - **"No script URL provided"** — Metro isn't running, or something else has
   port 8081. Start it with `npx react-native start`.
 
-- **"Unable to resolve module `react-native-config`"** — run `npm install`
-  and then `cd ios && bundle exec pod install && cd ..`.
+- **"Unable to resolve module `@env`"** — run `npm install`, then restart
+  Metro with `--reset-cache`. The module is virtual, created by the Babel
+  plugin at transform time; it doesn't exist on disk.
 - **"No Metro bundler running"** — run `npx react-native start` in a second
   terminal before `run-ios` / `run-android`.

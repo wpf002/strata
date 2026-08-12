@@ -31,7 +31,7 @@ No page code moved and no routes changed. The sidebar, drawer and bottom bar had
 each kept a private copy of the nav list — all three now read
 `components/sections.ts`, and the tab strip renders once in the app shell.
 
-### Phase 3 — iOS builds and runs
+### Phase 3 — iOS and Android both build and run
 
 **First time this app has ever compiled.** Verified on Xcode 26.6, iPhone 17 Pro
 simulator, CocoaPods 1.16.2 — launches to the Login screen against live Supabase.
@@ -48,14 +48,35 @@ Four real blockers, in the order they surfaced:
    supabase-js reads `.protocol` in its constructor. Added
    `react-native-url-polyfill`, imported at the top of `index.js`.
 
-**Android is not verified** — the machine has no Android SDK, no Android Studio,
-no CLI tools. The Gradle project is configured (compileSdk 35, NDK 26.1); what's
-missing is the toolchain, plus a JDK 17 (this machine has 25, which RN 0.76's
-Gradle will reject). `SETUP.md` §4 lists exactly what to install.
+**Android now runs too** — API 35 emulator (Pixel 7, arm64). Toolchain installed
+from scratch: JDK 17 via Homebrew, Android command-line tools, SDK Platform 35,
+build-tools 35.0.0, platform-tools, emulator, system image.
+
+Two more blockers on the Android side:
+
+5. The NDK pinned in `android/build.gradle` (26.1.10909125) turned out to be
+   unnecessary — nothing builds native code from source, and the build succeeds
+   without it. Saved a ~1GB download.
+6. **`react-native-config` doesn't work on Android under the New Architecture.**
+   `npx react-native config` reports `android: null` for it, so autolinking
+   skips it entirely and `TurboModuleRegistry.get("RNCConfigModule")` returns
+   null at runtime — the app died on "Cannot read property 'getConfig' of null"
+   while iOS was fine. Registering the package by hand (settings.gradle include
+   + `implementation project(...)` + `add(RNCConfigPackage())`) got it to
+   compile but still didn't register the TurboModule under bridgeless.
+
+   Rather than stack more workarounds on a library whose Android support is
+   broken, config moved to **`react-native-dotenv`** — a Babel transform with no
+   native module on either platform, so iOS and Android, old and new
+   architecture all behave identically. `Config.X` became `import { X } from
+   '@env'`. All the Gradle and MainApplication hacks were reverted.
+
+Both platforms re-verified after the swap: iOS and Android each build clean and
+launch to the Login screen against live Supabase.
 
 ### Verification
 
-- Mobile TypeScript 0 errors; **iOS build succeeded and app runs on simulator**
+- Mobile TypeScript 0 errors; **iOS and Android both build and run**
 - Web **97 vitest** (+8), 0 tsc errors, clean build
 - Backend **128 pytest**
 
