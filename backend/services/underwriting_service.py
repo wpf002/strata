@@ -3,6 +3,7 @@ Financial model — mirrors web/src/api/client.ts computeUnderwriting() exactly.
 Both TS and Python must return identical numbers for identical inputs.
 """
 from ..schemas.underwriting import UnderwritingInputs, UnderwritingOutputs, ScenarioOutput
+from .tax_service import default_tax_rate_pct, monthly_tax
 
 
 def compute_underwriting(i: UnderwritingInputs) -> UnderwritingOutputs:
@@ -21,19 +22,27 @@ def compute_underwriting(i: UnderwritingInputs) -> UnderwritingOutputs:
                 (1 + monthly_rate) ** num_payments - 1
             )
 
+    tax_rate_pct = (
+        i.property_tax_rate_pct
+        if i.property_tax_rate_pct is not None
+        else default_tax_rate_pct(i.state)
+    )
+
     vacancy_loss = i.monthly_rent * (i.vacancy_pct / 100)
     egi = i.monthly_rent - vacancy_loss
     mgmt_cost = egi * (i.management_pct / 100)
-    tax_mo = (i.purchase_price * 0.022) / 12
+    tax_mo = monthly_tax(i.purchase_price, tax_rate_pct)
     maintenance_mo = (i.purchase_price * (i.maintenance_pct / 100)) / 12
     capex_mo = egi * (i.capex_pct / 100)
     total_opex = mgmt_cost + tax_mo + i.insurance_monthly + maintenance_mo + capex_mo
     noi = egi - total_opex
     cash_flow = noi - mortgage
-    coc_return = ((cash_flow * 12) / (down_amount + 8500)) * 100
-    cap_rate = ((noi * 12) / i.purchase_price) * 100
+    cash_to_close = down_amount + i.closing_costs
+    coc_return = ((cash_flow * 12) / cash_to_close) * 100 if cash_to_close else 0.0
+    cap_rate = ((noi * 12) / i.purchase_price) * 100 if i.purchase_price else 0.0
     grm = i.purchase_price / (i.monthly_rent * 12) if i.monthly_rent else 0
-    dscr = noi / mortgage if mortgage else 0
+    # Undefined with no debt rather than 0 — see the schema note.
+    dscr = (noi / mortgage) if mortgage else None
 
     scenario_defs = [
         {"name": "Bear", "rent_adj": -0.10, "vac_adj": 4, "apr_adj": -2},
@@ -45,18 +54,24 @@ def compute_underwriting(i: UnderwritingInputs) -> UnderwritingOutputs:
         r = i.monthly_rent * (1 + s["rent_adj"])
         v = i.vacancy_pct + s["vac_adj"]
         e2 = r * (1 - v / 100)
-        op = e2 * (i.management_pct / 100) + tax_mo + i.insurance_monthly + maintenance_mo + capex_mo
+        # CapEx scales with the scenario's effective gross income, same as
+        # management. It previously reused the base-case capex_mo while
+        # recomputing management, which understated expenses in Bear and
+        # overstated them in Bull.
+        capex_2 = e2 * (i.capex_pct / 100)
+        op = e2 * (i.management_pct / 100) + tax_mo + i.insurance_monthly + maintenance_mo + capex_2
         n2 = e2 - op
         cf = n2 - mortgage
-        irr = ((cf * 12) / (down_amount + 8500)) + (
-            s["apr_adj"] / 100 * (i.purchase_price / (down_amount + 8500))
-        )
+        year_one = (
+            ((cf * 12) / cash_to_close)
+            + (s["apr_adj"] / 100 * (i.purchase_price / cash_to_close))
+        ) if cash_to_close else 0.0
         scenarios.append(
             ScenarioOutput(
                 name=s["name"],
                 cash_flow=cf,
-                irr=irr * 100,
-                cap_rate=(n2 * 12 / i.purchase_price) * 100,
+                year_one_return=year_one * 100,
+                cap_rate=(n2 * 12 / i.purchase_price) * 100 if i.purchase_price else 0.0,
             )
         )
 
@@ -82,7 +97,7 @@ def compute_underwriting(i: UnderwritingInputs) -> UnderwritingOutputs:
         break_even_rent=mortgage + total_opex,
         break_even_occupancy=((mortgage + total_opex) / i.monthly_rent * 100) if i.monthly_rent else 0,
         expense_ratio=(total_opex / egi * 100) if egi else 0,
-        total_cash_to_close=down_amount + 8500,
+        total_cash_to_close=cash_to_close,
         annual_cash_flow=cash_flow * 12,
         recommendation=recommendation,
         scenarios=scenarios,
@@ -110,7 +125,17 @@ def brrrr_analysis(base: UnderwritingInputs, rehab_cost: float, arv: float,
         arv_confidence = "High"
 
     refi_loan_amount = arv * (refi_ltv_pct / 100)
-    equity_captured = arv - refi_loan_amount - purchase - rehab_cost
+
+    # `equity_captured` was `arv - refi_loan_amount - purchase - rehab_cost`,
+    # which subtracts the project cost twice (once directly, once via the loan
+    # that funded it). On a textbook-profitable BRRRR — 300k purchase, 50k
+    # rehab, 450k ARV — it reported -$237,500 of "equity captured" against
+    # roughly +$82k of real value creation, i.e. it made good deals look
+    # catastrophic. Two distinct, correct figures now:
+    #   value created  = ARV - everything spent to get there
+    #   equity retained = ARV - the new loan against it
+    equity_captured = arv - total_project_cost
+    equity_retained = arv - refi_loan_amount
     cash_left_in_deal = max(0, total_project_cost - refi_loan_amount)
     equity_capture_pct = (equity_captured / total_project_cost * 100) if total_project_cost else 0
 
@@ -126,7 +151,12 @@ def brrrr_analysis(base: UnderwritingInputs, rehab_cost: float, arv: float,
 
     vacancy_loss = base.monthly_rent * (base.vacancy_pct / 100)
     egi = base.monthly_rent - vacancy_loss
-    tax_mo = (purchase * 0.022) / 12
+    tax_rate_pct = (
+        base.property_tax_rate_pct
+        if base.property_tax_rate_pct is not None
+        else default_tax_rate_pct(base.state)
+    )
+    tax_mo = monthly_tax(purchase, tax_rate_pct)
     maintenance_mo = (purchase * (base.maintenance_pct / 100)) / 12
     capex_mo = egi * (base.capex_pct / 100)
     total_opex = (
@@ -138,7 +168,7 @@ def brrrr_analysis(base: UnderwritingInputs, rehab_cost: float, arv: float,
     )
     noi = egi - total_opex
     post_refi_cash_flow = noi - refi_mortgage
-    post_refi_dscr = noi / refi_mortgage if refi_mortgage else 0
+    post_refi_dscr = noi / refi_mortgage if refi_mortgage else None
     brrrr_roe = (post_refi_cash_flow * 12 / cash_left_in_deal * 100) if cash_left_in_deal > 0 else 0
 
     return {
@@ -152,10 +182,11 @@ def brrrr_analysis(base: UnderwritingInputs, rehab_cost: float, arv: float,
         "totalProjectCost": round(total_project_cost),
         "refiLoanAmount": round(refi_loan_amount),
         "equityCaptured": round(equity_captured),
+        "equityRetained": round(equity_retained),
         "cashLeftInDeal": round(cash_left_in_deal),
         "equityCapturePct": round(equity_capture_pct, 1),
         "postRefiCashFlow": round(post_refi_cash_flow, 2),
-        "postRefiDscr": round(post_refi_dscr, 2),
+        "postRefiDscr": round(post_refi_dscr, 2) if post_refi_dscr is not None else None,
         "brrrrReturnOnEquity": round(brrrr_roe, 1),
     }
 

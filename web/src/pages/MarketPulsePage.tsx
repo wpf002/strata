@@ -159,19 +159,19 @@ export default function MarketPulsePage() {
     }
   };
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   useEffect(() => {
+    // On failure this used to substitute five hardcoded markets — Dallas
+    // $342K, Phoenix $415K and so on — which the cards then presented under
+    // "Live conditions · updated daily". Invented market data labelled live is
+    // worse than no data, so a failure now says so.
     fetch(`${BASE_URL}/market/summary`)
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(setMarkets)
+      .then(data => { setMarkets(data); setLoadError(null); })
       .catch(() => {
-        // Inline fallback if backend unavailable
-        setMarkets([
-          { city: 'Dallas', state: 'TX', regime: 'Balanced', medianPrice: 342000, priceChange12Mo: 4.2, inventoryMonths: 2.3, daysOnMarket: 28, capRateMedian: 5.4, rentGrowth12Mo: 3.1, vacancyRate: 4.8 },
-          { city: 'Phoenix', state: 'AZ', regime: 'Balanced', medianPrice: 415000, priceChange12Mo: 2.8, inventoryMonths: 2.9, daysOnMarket: 35, capRateMedian: 5.0, rentGrowth12Mo: 2.4, vacancyRate: 5.2 },
-          { city: 'Nashville', state: 'TN', regime: 'Cooling', medianPrice: 468000, priceChange12Mo: 1.2, inventoryMonths: 3.7, daysOnMarket: 42, capRateMedian: 4.8, rentGrowth12Mo: 2.8, vacancyRate: 5.8 },
-          { city: 'Atlanta', state: 'GA', regime: 'Hot', medianPrice: 358000, priceChange12Mo: 5.6, inventoryMonths: 1.7, daysOnMarket: 22, capRateMedian: 5.8, rentGrowth12Mo: 4.2, vacancyRate: 4.2 },
-          { city: 'Tampa', state: 'FL', regime: 'Cooling', medianPrice: 392000, priceChange12Mo: -0.8, inventoryMonths: 4.2, daysOnMarket: 56, capRateMedian: 5.1, rentGrowth12Mo: 0.6, vacancyRate: 7.1 },
-        ]);
+        setMarkets([]);
+        setLoadError('Market data is unavailable right now. Check that the API is running.');
       })
       .finally(() => setLoading(false));
   }, []);
@@ -233,6 +233,14 @@ export default function MarketPulsePage() {
             {[...Array(5)].map((_, i) => (
               <div key={i} className="glass rounded-2xl h-48 animate-pulse" />
             ))}
+          </div>
+        ) : loadError ? (
+          <div className="glass rounded-2xl p-10 text-center border border-red-500/20">
+            <p className="text-sm text-red-400 mb-1">{loadError}</p>
+            <p className="text-xs text-slate-500">
+              Nothing is shown rather than estimated — market figures here should
+              only ever come from the live feed.
+            </p>
           </div>
         ) : visibleMarkets.length === 0 ? (
           <div className="glass rounded-2xl p-10 text-center border border-white/5">

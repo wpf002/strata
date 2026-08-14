@@ -451,15 +451,27 @@ export default function SettingsPage() {
   const { signOut, user } = useAuth();
   const [section, setSection] = useState<Section>('profile');
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  // Without this, a failed /users/me on a signed-out session left `profile`
+  // null forever and the page sat on a pulsing skeleton with no error, no
+  // retry and no explanation.
+  const [loadFailed, setLoadFailed] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     apiGet<UserProfile>('/users/me')
-      .then(setProfile)
+      .then(p => { if (!cancelled) { setProfile(p); setLoadFailed(false); } })
       .catch(() => {
+        if (cancelled) return;
         if (user) {
+          // Signed in but the profile call failed — fall back to what the
+          // session already tells us so the page stays usable.
           setProfile({ id: user.id, email: user.email ?? '', name: null, strategySettings: {} });
+          setLoadFailed(false);
+        } else {
+          setLoadFailed(true);
         }
       });
+    return () => { cancelled = true; };
   }, [user]);
 
   const saveProfile = async (name: string) => {
@@ -479,6 +491,18 @@ export default function SettingsPage() {
   };
 
   if (!profile) {
+    if (loadFailed) {
+      return (
+        <div className="flex items-center justify-center h-full px-4">
+          <div className="glass rounded-2xl p-8 max-w-sm text-center border border-white/5">
+            <p className="text-sm text-white font-semibold mb-1">Couldn't load your settings</p>
+            <p className="text-xs text-slate-500">
+              You may be signed out, or the API may be unreachable. Sign in again and retry.
+            </p>
+          </div>
+        </div>
+      );
+    }
     return <div className="flex items-center justify-center h-full"><div className="glass rounded-xl w-64 h-32 animate-pulse" /></div>;
   }
 

@@ -78,6 +78,11 @@ export interface UnderwritingInputs {
   insuranceMonthly: number;
   capexPct: number;
   strategy: string;
+  /** Effective annual property tax as % of price. Omit to use a state default. */
+  propertyTaxRatePct?: number;
+  /** Two-letter state, used to pick the property-tax default. */
+  state?: string;
+  closingCosts?: number;
 }
 
 // Underwriting outputs
@@ -85,7 +90,8 @@ export interface UnderwritingOutputs {
   cashFlow: number;
   capRate: number;
   cashOnCash: number;
-  dscr: number;
+  /** null for an all-cash purchase — DSCR is undefined with no debt service. */
+  dscr: number | null;
   grm: number;
   noi: number;
   mortgage: number;
@@ -104,7 +110,12 @@ export interface ScenarioOutput {
   name: 'Bear' | 'Base' | 'Bull';
   cashFlow: number;
   capRate: number;
-  irr: number;
+  /**
+   * Year-one total return on invested cash — cash-on-cash plus the levered
+   * effect of the scenario's appreciation assumption. Named `irr` once, which
+   * it never was: an IRR needs a multi-year cash flow series and a sale.
+   */
+  yearOneReturn: number;
 }
 
 // Portfolio

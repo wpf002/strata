@@ -72,6 +72,27 @@ from . import off_market_service
 from .markets_service import resolve_market
 
 log = logging.getLogger(__name__)
+def _listing_opex(price: float, egi: float, state: str | None) -> float:
+    """
+    Rough monthly operating expenses for a search listing: 8% management,
+    state property tax, flat insurance, 1%/yr maintenance.
+
+    Property tax was a flat 2.2% of price nationwide here too, which fed
+    cash_flow -> deal_score -> the ranking of the Opportunity Feed. Comparing a
+    Phoenix listing against a Dallas one under one Texas-shaped tax rate
+    systematically buried the cheaper-to-hold market.
+    """
+    from .tax_service import default_tax_rate_pct, monthly_tax
+
+    return (
+        egi * 0.08
+        + monthly_tax(price, default_tax_rate_pct(state))
+        + 140
+        + price * 0.01 / 12
+    )
+
+
+
 
 # ── Photo URL upgrader ────────────────────────────────────────────────────────
 # Realtor.com's RDCPIX CDN encodes image size as a single letter before .jpg
@@ -569,7 +590,7 @@ async def _fetch_rapidapi_property(
         mr = 7.25 / 100 / 12
         mtg = loan * (mr * (1 + mr) ** 360) / ((1 + mr) ** 360 - 1)
         egi = rent_mid * 0.94
-        opex = egi * 0.08 + price * 0.022 / 12 + 140 + price * 0.01 / 12
+        opex = _listing_opex(price, egi, state_val)
         cash_flow = round(egi - opex - mtg)
         coc = round(((cash_flow * 12) / (down + 8500)) * 100, 1)
 
@@ -809,7 +830,7 @@ async def _search_rapidapi(
             mr = 7.25 / 100 / 12
             mtg = loan * (mr * (1 + mr) ** 360) / ((1 + mr) ** 360 - 1)
             egi = rent_mid * 0.94
-            opex = egi * 0.08 + price * 0.022 / 12 + 140 + price * 0.01 / 12
+            opex = _listing_opex(price, egi, state_val)
             cash_flow = round(egi - opex - mtg)
             coc = round(((cash_flow * 12) / (down + 8500)) * 100, 1)
 

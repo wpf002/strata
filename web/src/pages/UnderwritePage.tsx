@@ -8,6 +8,7 @@ const BASE_URL = import.meta.env.VITE_API_URL ?? '';
 import type { Property, UnderwritingInputs, UnderwritingOutputs } from '../types';
 import { ScoreBadge, RiskBadge, MetricRow, fmt } from '../components/UI';
 import { clsx } from 'clsx';
+import { defaultTaxRatePct } from '../data/propertyTax';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { X_AXIS, Y_AXIS, TOOLTIP_STYLE, CHART_BOX_SM } from '../components/chartTheme';
 
@@ -30,6 +31,20 @@ interface StrategyHeadline {
   recKey: RecKey;
   reason: string;
   metrics: { label: string; value: string; color?: string }[];
+}
+
+/**
+ * DSCR is undefined on an all-cash purchase (no debt service). The model sends
+ * null; render that as "No debt" rather than 0.00, which would read as the
+ * worst possible coverage for the safest possible structure.
+ */
+function dscrLabel(dscr: number | null): string {
+  return dscr === null ? 'No debt' : dscr.toFixed(2);
+}
+
+function dscrColor(dscr: number | null, strongAt = 1.25): string {
+  if (dscr === null) return 'text-slate-300';
+  return dscr >= strongAt ? 'text-emerald-400' : 'text-red-400';
 }
 
 const REC_STYLE: Record<RecKey, string> = {
@@ -157,7 +172,7 @@ function deriveHeadline(
           { label: 'Net Housing Cost', value: housingCost <= 0 ? `+${cf(-housingCost)}/mo` : `${cf(housingCost)}/mo`, color: housingCost <= 0 ? 'text-emerald-400' : 'text-amber-400' },
           { label: 'Cost Offset', value: fmt.pct(offsetPct, 0), color: 'text-amber-400' },
           { label: 'Saved vs Rent', value: `${cf(savings)}/mo`, color: savings >= 0 ? 'text-emerald-400' : 'text-red-400' },
-          { label: 'DSCR', value: o.dscr.toFixed(2), color: o.dscr >= 1.25 ? 'text-emerald-400' : 'text-slate-300' },
+          { label: 'DSCR', value: dscrLabel(o.dscr), color: o.dscr === null ? 'text-slate-300' : dscrColor(o.dscr) },
           { label: 'Cash to Close', value: fmt.compact(cashToClose), color: 'text-slate-300' },
         ],
       };
@@ -209,7 +224,7 @@ function deriveHeadline(
         o.cashFlow > -100 ? 'warn' : 'bad';
       const label = recKey === 'good' ? 'Strong Buy' : recKey === 'ok' ? 'Buy with Negotiation' : recKey === 'warn' ? 'Marginal' : 'Avoid';
       const reason =
-        recKey === 'good' ? `${cf(o.cashFlow)}/mo cash flow · ${fmt.pct(o.cashOnCash)} CoC · DSCR ${o.dscr.toFixed(2)}` :
+        recKey === 'good' ? `${cf(o.cashFlow)}/mo cash flow · ${fmt.pct(o.cashOnCash)} CoC · DSCR ${dscrLabel(o.dscr)}` :
         recKey === 'ok' ? `Deal works at or below ${cf(i.purchasePrice - 12000)}. Consider negotiating.` :
         recKey === 'warn' ? 'Returns below threshold at standard assumptions. Stress-test before committing.' :
         'Negative cash flow at any standard financing scenario at this price.';
@@ -219,7 +234,7 @@ function deriveHeadline(
           { label: 'Cash Flow', value: `${o.cashFlow >= 0 ? '+' : ''}${cf(o.cashFlow)}/mo`, color: o.cashFlow >= 0 ? 'text-emerald-400' : 'text-red-400' },
           { label: 'Cap Rate', value: fmt.pct(o.capRate), color: o.capRate >= 5 ? 'text-amber-400' : 'text-slate-300' },
           { label: 'CoC Return', value: fmt.pct(o.cashOnCash), color: o.cashOnCash >= 6 ? 'text-emerald-400' : 'text-slate-300' },
-          { label: 'DSCR', value: o.dscr.toFixed(2), color: o.dscr >= 1.25 ? 'text-emerald-400' : 'text-red-400' },
+          { label: 'DSCR', value: dscrLabel(o.dscr), color: dscrColor(o.dscr) },
           { label: 'GRM', value: `${o.grm.toFixed(1)}x`, color: 'text-slate-300' },
         ],
       };
@@ -907,6 +922,10 @@ export default function UnderwritePage() {
     insuranceMonthly: 140,
     capexPct: 5,
     strategy: 'Long-Term Rental',
+    // Resolved from the property's state once it loads. Until then the model
+    // falls back to the national default rather than assuming Texas.
+    propertyTaxRatePct: undefined,
+    state: undefined,
   });
 
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -916,7 +935,14 @@ export default function UnderwritePage() {
     getProperty(propertyId)
       .then(p => {
         setProperty(p);
-        setInputs(prev => ({ ...prev, purchasePrice: p.price, monthlyRent: p.rentEstMid }));
+        setInputs(prev => ({
+          ...prev,
+          purchasePrice: p.price,
+          monthlyRent: p.rentEstMid,
+          state: p.state,
+          // Only seed the rate if the user hasn't already moved the slider.
+          propertyTaxRatePct: prev.propertyTaxRatePct ?? defaultTaxRatePct(p.state),
+        }));
       })
       .catch(() => {
         // Real RapidAPI listings 404 when the backend lacks the API key.
@@ -925,7 +951,13 @@ export default function UnderwritePage() {
         getProperty('p1')
           .then(p => {
             setProperty(p);
-            setInputs(prev => ({ ...prev, purchasePrice: p.price, monthlyRent: p.rentEstMid }));
+            setInputs(prev => ({
+              ...prev,
+              purchasePrice: p.price,
+              monthlyRent: p.rentEstMid,
+              state: p.state,
+              propertyTaxRatePct: prev.propertyTaxRatePct ?? defaultTaxRatePct(p.state),
+            }));
           })
           .catch(() => setLoadError('Backend unreachable. Try again in a moment.'));
       });
@@ -1026,6 +1058,18 @@ export default function UnderwritePage() {
             <SliderRow label="Maintenance" value={inputs.maintenancePct} display={`${inputs.maintenancePct}% of value/yr`} min={0.25} max={3} step={0.25} onChange={v => set('maintenancePct')(v)} />
             <SliderRow label="Insurance" value={inputs.insuranceMonthly} display={`${fmt.currency(inputs.insuranceMonthly)}/mo`} min={60} max={400} step={10} onChange={v => set('insuranceMonthly')(v)} />
             <SliderRow label="CapEx Reserve" value={inputs.capexPct} display={`${inputs.capexPct}% of EGI`} min={0} max={15} step={1} onChange={v => set('capexPct')(v)} />
+            {/* Was a flat 2.2% of price nationwide, buried in the model. On a
+                $342k property that's ~$285/mo too much in Arizona and not
+                enough in New Jersey — it moved cap rate by over a point. */}
+            <SliderRow
+              label="Property Tax"
+              value={inputs.propertyTaxRatePct ?? defaultTaxRatePct(inputs.state)}
+              display={`${(inputs.propertyTaxRatePct ?? defaultTaxRatePct(inputs.state)).toFixed(1)}% of value/yr${inputs.state ? ` · ${inputs.state} avg` : ''}`}
+              min={0}
+              max={3}
+              step={0.1}
+              onChange={v => set('propertyTaxRatePct')(v)}
+            />
           </div>
 
           {/* Advanced */}
@@ -1131,7 +1175,7 @@ export default function UnderwritePage() {
                     {s.cashFlow >= 0 ? '+' : ''}{fmt.currency(s.cashFlow)}/mo
                   </span>
                   <span className="text-xs font-mono text-amber-400 w-16 text-right">{fmt.pct(s.capRate)} cap</span>
-                  <span className="text-xs font-mono text-slate-400 w-14 text-right">{fmt.pct(s.irr)} IRR</span>
+                  <span className="text-xs font-mono text-slate-400 w-20 text-right" title="Year-one total return on invested cash: cash-on-cash plus levered appreciation">{fmt.pct(s.yearOneReturn)} yr-1</span>
                 </div>
               ))}
             </div>
@@ -1148,20 +1192,33 @@ export default function UnderwritePage() {
             </div>
           </div>
 
-          {/* DSCR check */}
-          <div className={clsx('rounded-xl p-4 border flex items-center gap-3', outputs.dscr >= 1.25 ? 'border-emerald-400/30 bg-emerald-400/5' : 'border-red-400/30 bg-red-400/5')}>
-            {outputs.dscr >= 1.25 ? <CheckCircle size={16} className="text-emerald-400" /> : <XCircle size={16} className="text-red-400" />}
-            <div>
-              <p className={clsx('text-sm font-semibold', outputs.dscr >= 1.25 ? 'text-emerald-400' : 'text-red-400')}>
-                DSCR Financing: {outputs.dscr >= 1.25 ? `Qualifies at ${outputs.dscr.toFixed(2)}` : `Does Not Qualify at ${outputs.dscr.toFixed(2)}`}
-              </p>
-              <p className="text-xs text-slate-500">
-                {outputs.dscr >= 1.25
-                  ? 'This deal qualifies for DSCR loan products. Most lenders require 1.20–1.25 minimum.'
-                  : 'Most DSCR lenders require 1.20–1.25 minimum. Increase rent, reduce price, or increase down payment.'}
-              </p>
+          {/* DSCR check — three states, because an all-cash purchase has no
+              debt to service and used to render "Does Not Qualify at 0.00". */}
+          {outputs.dscr === null ? (
+            <div className="rounded-xl p-4 border flex items-center gap-3 border-white/10 bg-white/3">
+              <CheckCircle size={16} className="text-slate-400" />
+              <div>
+                <p className="text-sm font-semibold text-slate-300">DSCR Financing: Not applicable</p>
+                <p className="text-xs text-slate-500">
+                  No debt service on an all-cash purchase, so there's no coverage ratio to test.
+                </p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className={clsx('rounded-xl p-4 border flex items-center gap-3', outputs.dscr >= 1.25 ? 'border-emerald-400/30 bg-emerald-400/5' : 'border-red-400/30 bg-red-400/5')}>
+              {outputs.dscr >= 1.25 ? <CheckCircle size={16} className="text-emerald-400" /> : <XCircle size={16} className="text-red-400" />}
+              <div>
+                <p className={clsx('text-sm font-semibold', outputs.dscr >= 1.25 ? 'text-emerald-400' : 'text-red-400')}>
+                  DSCR Financing: {outputs.dscr >= 1.25 ? `Qualifies at ${outputs.dscr.toFixed(2)}` : `Does Not Qualify at ${outputs.dscr.toFixed(2)}`}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {outputs.dscr >= 1.25
+                    ? 'This deal qualifies for DSCR loan products. Most lenders require 1.20–1.25 minimum.'
+                    : 'Most DSCR lenders require 1.20–1.25 minimum. Increase rent, reduce price, or increase down payment.'}
+                </p>
+              </div>
+            </div>
+          )}
           </>
           )}
 

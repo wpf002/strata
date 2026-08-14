@@ -4,6 +4,7 @@ import type {
 } from '../types';
 import { mockProperties, mockPortfolioHoldings, mockMarketData } from '../data/mockData';
 import { supabase } from '../lib/supabase';
+import { defaultTaxRatePct } from '../data/propertyTax';
 
 export type ValuationData = {
   propertyId: string;
@@ -123,6 +124,9 @@ export async function calculateUnderwriting(inputs: UnderwritingInputs): Promise
     insurance_monthly: inputs.insuranceMonthly,
     capex_pct: inputs.capexPct,
     strategy: inputs.strategy,
+    property_tax_rate_pct: inputs.propertyTaxRatePct,
+    state: inputs.state,
+    closing_costs: inputs.closingCosts,
   };
   const raw = await post<any>('/underwriting/calculate', body);
   return apiToUnderwritingOutputs(raw);
@@ -276,7 +280,7 @@ function apiToProperty(p: any): Property {
   return {
     id: p.id, address: p.address, city: p.city, state: p.state, zip: p.zip,
     price: p.price, beds: p.beds, baths: p.baths, sqft: p.sqft,
-    lotSqft: p.lotSqft, yearBuilt: p.yearBulit ?? p.yearBuilt,
+    lotSqft: p.lotSqft, yearBuilt: p.yearBuilt,
     type: p.type, status: p.status, daysOnMarket: p.daysOnMarket,
     dealScore: p.dealScore, riskScore: p.riskScore,
     capRate: p.capRate, cashOnCash: p.cashOnCash, cashFlow: p.cashFlow,
@@ -759,18 +763,32 @@ function apiToHolding(h: any) {
 function apiToUnderwritingOutputs(r: any): UnderwritingOutputs {
   return {
     cashFlow: r.cashFlow, capRate: r.capRate, cashOnCash: r.cashOnCash,
-    dscr: r.dscr, grm: r.grm, noi: r.noi, mortgage: r.mortgage,
+    // `?? null` not `?? 0` — the backend sends null for an all-cash purchase,
+    // where DSCR is undefined rather than zero.
+    dscr: r.dscr ?? null,
+    grm: r.grm, noi: r.noi, mortgage: r.mortgage,
     totalExpenses: r.totalExpenses, effectiveGrossIncome: r.effectiveGrossIncome,
     breakEvenRent: r.breakEvenRent, breakEvenOccupancy: r.breakEvenOccupancy,
     expenseRatio: r.expenseRatio, totalCashToClose: r.totalCashToClose,
     annualCashFlow: r.annualCashFlow, recommendation: r.recommendation,
     scenarios: (r.scenarios ?? []).map((s: any) => ({
-      name: s.name, cashFlow: s.cashFlow, capRate: s.capRate, irr: s.irr,
+      name: s.name,
+      cashFlow: s.cashFlow,
+      capRate: s.capRate,
+      // Accept the legacy `irr` key so an older API build still maps.
+      yearOneReturn: s.yearOneReturn ?? s.irr,
     })),
   };
 }
 
 // ── Local calculation (mirrors backend logic exactly) ────────────────────────
+/**
+ * Mirror of backend/services/underwriting_service.py compute_underwriting().
+ * The two MUST agree for identical inputs — test/underwriting.test.ts asserts
+ * that against fixtures generated from the Python side.
+ *
+ * Only used when VITE_USE_MOCK is on; otherwise the backend computes.
+ */
 function computeUnderwriting(i: UnderwritingInputs): UnderwritingOutputs {
   const downAmount = i.purchasePrice * (i.downPaymentPct / 100);
   const loanAmt = i.purchasePrice - downAmount;
@@ -778,21 +796,30 @@ function computeUnderwriting(i: UnderwritingInputs): UnderwritingOutputs {
   const numPayments = i.loanType === '15yr Fixed' ? 180 : 360;
   const mortgage = i.loanType === 'Interest Only'
     ? loanAmt * monthlyRate
-    : loanAmt * (monthlyRate * Math.pow(1 + monthlyRate, numPayments)) / (Math.pow(1 + monthlyRate, numPayments) - 1);
+    : monthlyRate === 0
+      ? loanAmt / numPayments
+      : loanAmt * (monthlyRate * Math.pow(1 + monthlyRate, numPayments)) / (Math.pow(1 + monthlyRate, numPayments) - 1);
+
+  const closingCosts = i.closingCosts ?? 8500;
+  const taxRatePct = i.propertyTaxRatePct ?? defaultTaxRatePct(i.state);
 
   const vacancyLoss = i.monthlyRent * (i.vacancyPct / 100);
   const egi = i.monthlyRent - vacancyLoss;
   const mgmtCost = egi * (i.managementPct / 100);
-  const taxMo = (i.purchasePrice * 0.022) / 12;
+  const taxMo = (i.purchasePrice * (taxRatePct / 100)) / 12;
   const maintenanceMo = (i.purchasePrice * (i.maintenancePct / 100)) / 12;
   const capexMo = egi * (i.capexPct / 100);
   const totalOpex = mgmtCost + taxMo + i.insuranceMonthly + maintenanceMo + capexMo;
   const noi = egi - totalOpex;
   const cashFlow = noi - mortgage;
-  const cocReturn = ((cashFlow * 12) / (downAmount + 8500)) * 100;
-  const capRate = ((noi * 12) / i.purchasePrice) * 100;
-  const grm = i.purchasePrice / (i.monthlyRent * 12);
-  const dscr = noi / mortgage;
+  const cashToClose = downAmount + closingCosts;
+  // Every ratio below is guarded. Unguarded, a 100% down payment (reachable
+  // from the slider) divided by a zero mortgage and rendered "Infinity", while
+  // the Python side returned 0 for the same input.
+  const cocReturn = cashToClose ? ((cashFlow * 12) / cashToClose) * 100 : 0;
+  const capRate = i.purchasePrice ? ((noi * 12) / i.purchasePrice) * 100 : 0;
+  const grm = i.monthlyRent ? i.purchasePrice / (i.monthlyRent * 12) : 0;
+  const dscr = mortgage ? noi / mortgage : null;
 
   const scenarios = [
     { name: 'Bear' as const, rentAdj: -0.10, vacAdj: 4, aprAdj: -2 },
@@ -802,11 +829,20 @@ function computeUnderwriting(i: UnderwritingInputs): UnderwritingOutputs {
     const r = i.monthlyRent * (1 + s.rentAdj);
     const v = i.vacancyPct + s.vacAdj;
     const e2 = r * (1 - v / 100);
-    const op = e2 * (i.managementPct / 100) + taxMo + i.insuranceMonthly + maintenanceMo + capexMo;
+    // CapEx scales with the scenario's EGI, matching management.
+    const capex2 = e2 * (i.capexPct / 100);
+    const op = e2 * (i.managementPct / 100) + taxMo + i.insuranceMonthly + maintenanceMo + capex2;
     const n2 = e2 - op;
     const cf = n2 - mortgage;
-    const irr = ((cf * 12) / (downAmount + 8500)) + (s.aprAdj / 100 * (i.purchasePrice / (downAmount + 8500)));
-    return { name: s.name, cashFlow: cf, irr: irr * 100, capRate: (n2 * 12 / i.purchasePrice) * 100 };
+    const yearOne = cashToClose
+      ? ((cf * 12) / cashToClose) + (s.aprAdj / 100 * (i.purchasePrice / cashToClose))
+      : 0;
+    return {
+      name: s.name,
+      cashFlow: cf,
+      yearOneReturn: yearOne * 100,
+      capRate: i.purchasePrice ? (n2 * 12 / i.purchasePrice) * 100 : 0,
+    };
   });
 
   const recommendation =
@@ -818,9 +854,9 @@ function computeUnderwriting(i: UnderwritingInputs): UnderwritingOutputs {
     cashFlow, capRate, cashOnCash: cocReturn, dscr, grm, noi, mortgage,
     totalExpenses: totalOpex, effectiveGrossIncome: egi,
     breakEvenRent: mortgage + totalOpex,
-    breakEvenOccupancy: ((mortgage + totalOpex) / i.monthlyRent) * 100,
-    expenseRatio: (totalOpex / egi) * 100,
-    totalCashToClose: downAmount + 8500,
+    breakEvenOccupancy: i.monthlyRent ? ((mortgage + totalOpex) / i.monthlyRent) * 100 : 0,
+    expenseRatio: egi ? (totalOpex / egi) * 100 : 0,
+    totalCashToClose: cashToClose,
     annualCashFlow: cashFlow * 12,
     recommendation, scenarios,
   };
