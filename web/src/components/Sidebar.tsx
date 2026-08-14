@@ -25,6 +25,11 @@ export default function Sidebar() {
           </div>
         </Link>
       </div>
+      {/* Alerts and Settings sit directly under the primary nav — they're
+          navigation too. Pinning them to the bottom alongside the profile card
+          left a ~500px void once the nav dropped from eleven entries to six:
+          two separate bottom-anchored groups read as missing content, where
+          empty space below a single anchored card reads as intentional. */}
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
         {PRIMARY_NAV.map(item => {
           const active = isInSection(location.pathname, item);
@@ -36,11 +41,24 @@ export default function Sidebar() {
             </Link>
           );
         })}
+
+        <div className="pt-3 mt-3 border-t border-white/5 space-y-0.5">
+          <Link
+            to="/alerts"
+            className={clsx('nav-item', location.pathname.startsWith('/alerts') && 'active')}
+          >
+            <Bell size={16} /><span>Alerts</span>
+          </Link>
+          <Link
+            to="/settings"
+            className={clsx('nav-item', location.pathname.startsWith('/settings') && 'active')}
+          >
+            <Settings size={16} /><span>Settings</span>
+          </Link>
+        </div>
       </nav>
-      <div className="px-3 pb-4 space-y-1 border-t border-white/5 pt-3">
-        <Link to="/alerts" className="nav-item"><Bell size={16} /><span>Alerts</span></Link>
-        <Link to="/settings" className="nav-item"><Settings size={16} /><span>Settings</span></Link>
-        <div className="mt-3 px-1">
+      <div className="px-3 pb-4">
+        <div className="px-1">
           <div className="glass rounded-xl p-3">
             <div className="flex items-center gap-2.5 mb-2">
               <div className="w-7 h-7 rounded-full bg-navy-700 flex items-center justify-center text-xs font-bold text-amber-500">W</div>
