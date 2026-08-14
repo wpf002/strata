@@ -1,5 +1,55 @@
 # STRATA — Progress Log
 
+## Sprint 10 — August 2026 — Financial model correctness + coverage
+
+The audit's stated blind spots were "a handler wired to the wrong thing" and
+"an endpoint returning plausible-but-wrong numbers". Both turned out to be
+real, and the second was concentrated where it matters most.
+
+### The model had no tests
+
+`compute_underwriting` — the core of an underwriting product — had zero. So did
+valuation, risk, and portfolio health. Six defects were living in that gap:
+
+| Bug | Effect |
+| --- | --- |
+| BRRRR `equity_captured = arv - refi_loan - purchase - rehab` | Subtracts project cost twice. A 300k + 50k → 450k ARV deal reported **−$237,500** captured against **+$82,000** of real value creation |
+| Property tax hardcoded at 2.2% nationwide | ~$285/mo wrong on a $342k AZ property; moved cap rate a full point and flipped buy/avoid calls. Also fed listing cash flow → deal score → Opportunity Feed ranking |
+| DSCR `0.0` for an all-cash purchase | Worst possible reading for the safest structure; UI said "Does Not Qualify at 0.00" to a buyer needing no loan. TS returned `Infinity` for the same input |
+| Scenario CapEx reused the base-case figure | Understated Bear expenses, overstated Bull's |
+| STR cleaning fees added as revenue with no matching expense | ~$720/mo of invented income, ~16% revenue inflation, every STR cap rate with it |
+| Offer engine read `MOCK_PROPERTIES` for all its inputs | For live listings: DOM 30, "Balanced", and a "fair value" of list price ±3% — a recommended offer that was list price × constants, presented as AVM-informed |
+
+Plus: `irr` was never an IRR (no cash-flow series, no terminal sale) — renamed
+`yearOneReturn`; Market Pulse silently substituted five hardcoded markets on any
+API failure and labelled them "Live conditions · updated daily"; Settings sat on
+a loading skeleton forever when `/users/me` failed with no session.
+
+### Property tax is now a real input
+
+`backend/data/property_tax.json` holds approximate effective rates for 46
+states, documented as state averages rather than facts and overridable per
+deal. `bin/gen-tax-table.py` mirrors it into TypeScript so both implementations
+of the model apply the same rates; a test fails if they drift. The Underwrite
+page exposes it as a slider seeded from the property's state.
+
+### Coverage
+
+Backend **128 → 200**, web **97 → 154**. New suites: financial model (34),
+risk (17), portfolio health (12), valuation (9), API mapping (10), underwriting
+parity (21), page smoke tests (17), Underwrite page (9).
+
+Two things make these worth having:
+
+- **Expected values are derived independently** — standard amortization and
+  NOI/cap-rate definitions written out in the test — not captured from the
+  implementation's own output. A regression fails instead of rebaselining.
+- **The TS/Python parity suite is mutation-verified.** Reintroducing the
+  scenario-CapEx bug in the TypeScript model failed 11 of 12 cases. The
+  docstring claimed the two implementations must agree; now something enforces
+  it.
+
+
 ## Sprint 9 — August 2026 — Audit completion, nav collapse, first native build
 
 ### Phase 1 — audit finished

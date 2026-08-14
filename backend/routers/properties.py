@@ -192,15 +192,39 @@ async def offer_analysis(
 ):
     prop = await _load_or_mock_property(db, property_id)
 
+    # Every input below used to come from MOCK_PROPERTIES only. For a live
+    # listing that meant DOM 30 / Balanced / no price cut, and a "fair value"
+    # of list_price ±3% — so the recommended offer was just list price times a
+    # few constants, presented as if an AVM had informed it. Prefer the real
+    # valuation and the stored property; fall back to mock for mock ids.
     mock = next((p for p in property_service.MOCK_PROPERTIES if p["id"] == property_id), None)
-    days_on_market: int = mock.get("days_on_market", 30) if mock else 30
-    market_regime: str = mock.get("market_regime", "Balanced") if mock else "Balanced"
-    has_price_reduction: bool = mock.get("has_price_reduction", False) if mock else False
+    prop_data = prop.data or {}
 
-    # AVM fair value mid
-    fair_value_low = (mock or {}).get("fair_value_low", body.list_price * 0.97)
-    fair_value_high = (mock or {}).get("fair_value_high", body.list_price * 1.03)
-    base = (fair_value_low + fair_value_high) / 2
+    days_on_market: int = (
+        prop_data.get("days_on_market")
+        or (mock or {}).get("days_on_market")
+        or 30
+    )
+    market_regime: str = (
+        prop_data.get("market_regime")
+        or (mock or {}).get("market_regime")
+        or "Balanced"
+    )
+    has_price_reduction: bool = bool(
+        prop_data.get("has_price_reduction")
+        or prop_data.get("price_reductions")
+        or (mock or {}).get("has_price_reduction", False)
+    )
+
+    valuation = await valuation_service.get_valuation(db, prop)
+    if valuation.comp_count > 0:
+        base = valuation.fair_value_mid
+    else:
+        # No comps — say so via the confidence field rather than dressing the
+        # list price up as an independent valuation.
+        fair_value_low = (mock or {}).get("fair_value_low", body.list_price * 0.97)
+        fair_value_high = (mock or {}).get("fair_value_high", body.list_price * 1.03)
+        base = (fair_value_low + fair_value_high) / 2
 
     # DOM adjustment
     if days_on_market > 90:

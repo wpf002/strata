@@ -244,10 +244,22 @@ def str_analysis(base: UnderwritingInputs,
     stays_per_month_high = (30 * occupancy_high) / avg_stay_nights
 
     def monthly_str_revenue(rate, occ, stays):
+        """
+        Net rental revenue. Cleaning fees are pass-through: the guest pays
+        them and the cleaner is paid out of them, so they belong in neither
+        side of the model by default.
+
+        This previously did `gross - platform_cut + cleaning`, adding the
+        cleaning collection as income while booking no cleaning expense
+        anywhere — about $720/month of invented revenue on a typical listing
+        (6 stays at $120), inflating STR revenue by roughly 16% and every
+        STR cap rate with it.
+        """
         gross = rate * 30 * occ
         platform_cut = gross * platform_fee_pct
-        cleaning = stays * cleaning_fee_per_stay
-        return gross - platform_cut + cleaning
+        cleaning_collected = stays * cleaning_fee_per_stay
+        cleaning_paid_out = cleaning_collected  # pass-through
+        return gross - platform_cut + cleaning_collected - cleaning_paid_out
 
     str_monthly_low = monthly_str_revenue(nightly_rate_low, occupancy_low, stays_per_month_low)
     str_monthly_mid = monthly_str_revenue(nightly_rate_mid, occupancy_mid, stays_per_month_mid)
@@ -259,7 +271,12 @@ def str_analysis(base: UnderwritingInputs,
         # Reuse LTR opex but replace rent with STR revenue
         vacancy_loss = 0  # vacancy already baked into occupancy
         egi = monthly_rev
-        tax_mo = (purchase * 0.022) / 12
+        tax_rate_pct = (
+            base.property_tax_rate_pct
+            if base.property_tax_rate_pct is not None
+            else default_tax_rate_pct(base.state)
+        )
+        tax_mo = monthly_tax(purchase, tax_rate_pct)
         maintenance_mo = (purchase * (base.maintenance_pct / 100)) / 12
         capex_mo = egi * (base.capex_pct / 100)
         mgmt_str = egi * 0.20  # STR mgmt typically 20%

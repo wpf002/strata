@@ -289,3 +289,48 @@ def test_flip_longer_hold_costs_more():
     long = flip_analysis(purchase_price=300_000, rehab_cost=40_000, arv=450_000, hold_months=12)
     assert long["holdingCosts"] > short["holdingCosts"]
     assert long["netProfit"] < short["netProfit"]
+
+
+# ── STR ──────────────────────────────────────────────────────────────────────
+
+def test_str_cleaning_fees_are_pass_through_not_profit():
+    """
+    Cleaning is collected from the guest and paid to the cleaner. Counting only
+    the inflow added ~$720/month of invented revenue on a typical listing
+    (6 stays x $120) and inflated every STR cap rate with it.
+    """
+    from backend.services.underwriting_service import str_analysis
+
+    base = inputs(monthly_rent=2_240)
+    r = str_analysis(base, 180, 220, 260)
+
+    gross = 220 * 30 * 0.70
+    expected = gross - gross * 0.03
+    assert r["strMonthlyRevenueMid"] == pytest.approx(round(expected), abs=1)
+
+
+def test_str_cleaning_fee_amount_does_not_change_revenue():
+    """Pass-through means the fee level is irrelevant to net revenue."""
+    from backend.services.underwriting_service import str_analysis
+
+    base = inputs()
+    cheap = str_analysis(base, 180, 220, 260, cleaning_fee_per_stay=50)
+    pricey = str_analysis(base, 180, 220, 260, cleaning_fee_per_stay=300)
+    assert cheap["strMonthlyRevenueMid"] == pricey["strMonthlyRevenueMid"]
+
+
+def test_str_revenue_rises_with_nightly_rate_and_occupancy():
+    from backend.services.underwriting_service import str_analysis
+
+    base = inputs()
+    r = str_analysis(base, 150, 200, 250)
+    assert r["strMonthlyRevenueLow"] < r["strMonthlyRevenueMid"] < r["strMonthlyRevenueHigh"]
+    assert r["strCapRateLow"] < r["strCapRateHigh"]
+
+
+def test_str_uses_state_property_tax():
+    from backend.services.underwriting_service import str_analysis
+
+    tx = str_analysis(inputs(state="TX"), 180, 220, 260)
+    az = str_analysis(inputs(state="AZ"), 180, 220, 260)
+    assert az["strCapRateMid"] > tx["strCapRateMid"]
