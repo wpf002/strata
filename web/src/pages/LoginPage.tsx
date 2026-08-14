@@ -16,15 +16,16 @@ export default function LoginPage() {
     setMessage(null);
     setLoading(true);
 
-    const fn = mode === 'login' ? signIn : signUp;
-    const { error: err } = await fn(email, password);
+    const result = mode === 'login' ? await signIn(email, password) : await signUp(email, password);
 
     setLoading(false);
-    if (err) {
-      setError(err);
-    } else if (mode === 'signup') {
+    if (result.error) {
+      setError(result.error);
+    } else if (mode === 'signup' && 'needsEmailConfirmation' in result && result.needsEmailConfirmation) {
       setMessage('Check your email to confirm your account.');
     }
+    // Otherwise a session already exists and the app swaps in on its own —
+    // no message needed, and definitely not one about a confirmation email.
   };
 
   return (

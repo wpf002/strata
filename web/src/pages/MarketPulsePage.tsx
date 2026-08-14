@@ -218,7 +218,7 @@ export default function MarketPulsePage() {
             className="strata-input text-sm py-1.5 w-full sm:min-w-[200px]"
           >
             <option value="all">All markets with data</option>
-            {supported.map(m => (
+            {(supported ?? []).map(m => (
               <option key={m.marketId} value={m.marketId}>
                 {m.city}, {m.stateCode}{m.isLaunchMarket ? ' (launch)' : ''}
               </option>

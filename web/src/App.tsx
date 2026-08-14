@@ -3,6 +3,8 @@ import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
 import BottomTabs from './components/BottomTabs';
 import { SectionTabsBar } from './components/SectionTabs';
+import ErrorBoundary from './components/ErrorBoundary';
+import RoutedErrorBoundary from './components/RoutedErrorBoundary';
 import SearchPage from './pages/SearchPage';
 import IntelligencePage from './pages/IntelligencePage';
 import UnderwritePage from './pages/UnderwritePage';
@@ -43,11 +45,12 @@ export default function App() {
   }
 
   return (
+    <ErrorBoundary>
     <BrowserRouter>
       <Routes>
         {/* Public routes — no sidebar, no auth */}
-        <Route path="/reports/:id" element={<ReportPage />} />
-        <Route path="/portal/:token" element={<PortalViewPage />} />
+        <Route path="/reports/:id" element={<ErrorBoundary label="this report"><ReportPage /></ErrorBoundary>} />
+        <Route path="/portal/:token" element={<ErrorBoundary label="this portal"><PortalViewPage /></ErrorBoundary>} />
 
         {/* App shell with sidebar */}
         <Route path="*" element={
@@ -56,7 +59,9 @@ export default function App() {
             <div className="flex-1 flex flex-col overflow-hidden min-w-0 bg-navy-950/50">
               <MobileNav />
               <SectionTabsBar />
+              {/* Scoped to the page so a broken route keeps the nav usable. */}
               <main className="flex-1 overflow-hidden flex flex-col min-w-0">
+                <RoutedErrorBoundary>
                 <Routes>
                   <Route path="/" element={<SearchPage />} />
                   <Route path="/intelligence/:id" element={<IntelligencePage />} />
@@ -71,6 +76,7 @@ export default function App() {
                   <Route path="/settings" element={<SettingsPage />} />
                   <Route path="/alerts" element={<AlertsPage />} />
                 </Routes>
+                </RoutedErrorBoundary>
               </main>
               <BottomTabs />
             </div>
@@ -78,5 +84,6 @@ export default function App() {
         } />
       </Routes>
     </BrowserRouter>
+    </ErrorBoundary>
   );
 }

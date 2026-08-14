@@ -1,5 +1,51 @@
 # STRATA — Progress Log
 
+## Sprint 11 — August 2026 — Ready for user testing
+
+Focused on what a tester actually hits: the first five minutes on a new
+account, and what happens when something goes wrong in front of them.
+
+### Error boundaries
+
+There were none. Any uncaught render error unmounted the whole React tree and
+left a blank white page — no message, no navigation, no way back. In a user
+test that ends the session and teaches you nothing.
+
+`ErrorBoundary` + `RoutedErrorBoundary` now wrap the routed page (so the nav
+survives and the tester can carry on), the two public routes, and the shell as
+a last resort. The panel names the failing page, offers Try Again and Back to
+Search, and tucks the stack trace behind a collapsed `<details>` — enough for
+whoever is observing, ignorable for the tester. It clears itself on navigation.
+
+Verified for real by forcing a crash in Watchlist: sidebar, tabs and bottom bar
+all survived, and clicking Portfolio recovered cleanly.
+
+### Cold start
+
+A new account is a different code path from a signed-out one: requests succeed
+and return `[]`, so pages that only guard the error case fall through to
+rendering nothing. New suite mocks an authenticated user with every collection
+empty and asserts each page says something a person can read — no blank panels,
+no NaN, no `undefined`, no `[object Object]`.
+
+It immediately found a crash: `getSupportedMarkets()` returned `raw.markets`
+without guarding the shape, so an unexpected payload handed back `undefined`
+and Market Pulse died on `supported.map(...)`. Guarded at both ends.
+
+### Signup
+
+The project has email autoconfirm **on**, so signUp returns a live session and
+the user is already in — but the UI still said "Check your email to confirm
+your account." A tester would have sat waiting for mail that never arrives
+while already signed in. The message now only appears when a confirmation is
+genuinely pending.
+
+### Verification
+
+- Web **154 → 183** tests, backend **200**, 0 tsc errors, clean production build
+- Error boundary confirmed in the running app, not just in tests
+
+
 ## Sprint 10 — August 2026 — Financial model correctness + coverage
 
 The audit's stated blind spots were "a handler wired to the wrong thing" and

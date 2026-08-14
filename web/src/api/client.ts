@@ -298,8 +298,12 @@ function apiToProperty(p: any): Property {
 
 // ── Markets ──────────────────────────────────────────────────────────────────
 export async function getSupportedMarkets(): Promise<SupportedMarket[]> {
-  const raw = await get<{ markets: SupportedMarket[] }>('/markets/supported');
-  return raw.markets;
+  // Guard the shape: an unexpected payload used to hand back `undefined`,
+  // which then crashed MarketPulsePage on `supported.map(...)` — a white
+  // screen from one malformed response.
+  const raw = await get<{ markets?: SupportedMarket[] } | SupportedMarket[]>('/markets/supported');
+  if (Array.isArray(raw)) return raw;
+  return raw?.markets ?? [];
 }
 
 export async function getMarketSummary(): Promise<MarketSummary[]> {

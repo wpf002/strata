@@ -7,7 +7,7 @@ interface AuthContextValue {
   user: User | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: string | null }>;
+  signUp: (email: string, password: string) => Promise<{ error: string | null; needsEmailConfirmation?: boolean }>;
   signOut: () => Promise<void>;
 }
 
@@ -49,8 +49,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password });
-    return { error: describe(error?.message) };
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    // With email autoconfirm enabled on the project, signUp returns a live
+    // session and the user is already in. Telling them to go check their
+    // email for a confirmation that will never arrive is the worst possible
+    // first thirty seconds of a user test.
+    return {
+      error: describe(error?.message),
+      needsEmailConfirmation: !error && !data.session,
+    };
   };
 
   const signOut = () => supabase.auth.signOut().then(() => {});
