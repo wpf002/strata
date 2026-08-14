@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   View,
   Text,
@@ -9,7 +10,14 @@ import {
   ActivityIndicator,
   Dimensions,
 } from 'react-native';
-import { getProperty, type MobileProperty } from '../api';
+import {
+  addToWatchlist,
+  createWatchlist,
+  getProperty,
+  getWatchlists,
+  removeFromWatchlist,
+  type MobileProperty,
+} from '../api';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -44,13 +52,15 @@ function MetricCard({ label, value, accent = '#f1f5f9' }: MetricCardProps) {
 interface Props {
   propertyId: string;
   onBack: () => void;
+  onUnderwrite?: () => void;
 }
 
-export default function IntelligenceScreen({ propertyId, onBack }: Props) {
+export default function IntelligenceScreen({ propertyId, onBack, onUnderwrite }: Props) {
   const [property, setProperty] = useState<MobileProperty | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [watched, setWatched] = useState(false);
+  const [watchlistId, setWatchlistId] = useState<string | null>(null);
 
   useEffect(() => {
     getProperty(propertyId)
@@ -58,6 +68,37 @@ export default function IntelligenceScreen({ propertyId, onBack }: Props) {
       .catch(() => setError('Failed to load property details.'))
       .finally(() => setLoading(false));
   }, [propertyId]);
+
+  // The star used to be local state only: it lit up, saved nothing, and was
+  // blank again on the next visit. Reflect the real watchlist instead.
+  useEffect(() => {
+    let cancelled = false;
+    getWatchlists()
+      .then(lists => {
+        if (cancelled) return;
+        const list = lists[0];
+        setWatchlistId(list?.id ?? null);
+        setWatched(!!list?.propertyIds.includes(propertyId));
+      })
+      .catch(() => { /* leave unwatched; toggling will create the list */ });
+    return () => { cancelled = true; };
+  }, [propertyId]);
+
+  const toggleWatch = async () => {
+    const next = !watched;
+    setWatched(next);  // optimistic — the star should respond instantly
+    try {
+      let id = watchlistId;
+      if (!id) {
+        id = (await createWatchlist('My Watchlist')).id;
+        setWatchlistId(id);
+      }
+      if (next) await addToWatchlist(id, propertyId);
+      else await removeFromWatchlist(id, propertyId);
+    } catch {
+      setWatched(!next);  // roll back if the server rejected it
+    }
+  };
 
   if (loading) {
     return (
@@ -80,12 +121,21 @@ export default function IntelligenceScreen({ propertyId, onBack }: Props) {
 
   const p = property;
   const sc = scoreColor(p.dealScore);
-  const annualRevenue = (p.cashFlow + (p.price * (p.capRate / 100)) / 12) * 12;
-  const estimatedExpenses = annualRevenue - p.cashFlow * 12;
-  const grossYield = ((annualRevenue) / p.price * 100).toFixed(1);
+  // Was `(cashFlow + (price * capRate/100) / 12) * 12`, which adds a year of
+  // NOI to a year of cash flow and calls the result revenue — on a $315k
+  // listing that reported $4K of annual gross rent. Derived properly:
+  //   revenue      = rent x 12
+  //   NOI          = price x cap rate        (that is the definition)
+  //   opex         = revenue - NOI
+  //   debt service = NOI - annual cash flow
+  const annualRevenue = p.rentEstMid * 12;
+  const annualNoi = p.price * (p.capRate / 100);
+  const estimatedExpenses = Math.max(0, annualRevenue - annualNoi);
+  const annualDebtService = Math.max(0, annualNoi - p.cashFlow * 12);
+  const grossYield = annualRevenue > 0 ? (annualRevenue / p.price * 100).toFixed(1) : '—';
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView edges={['top']} style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.headerBack}>
@@ -94,7 +144,7 @@ export default function IntelligenceScreen({ propertyId, onBack }: Props) {
         <Text style={styles.headerTitle} numberOfLines={1}>Intelligence</Text>
         <TouchableOpacity
           style={[styles.watchBtn, watched && styles.watchBtnActive]}
-          onPress={() => setWatched(w => !w)}
+          onPress={toggleWatch}
         >
           <Text style={[styles.watchBtnText, watched && styles.watchBtnTextActive]}>
             {watched ? '★ Watching' : '☆ Watch'}
@@ -140,7 +190,7 @@ export default function IntelligenceScreen({ propertyId, onBack }: Props) {
               value={`${p.cashFlow >= 0 ? '+' : ''}${formatCurrency(p.cashFlow)}`}
               accent={p.cashFlow >= 0 ? '#22c55e' : '#ef4444'}
             />
-            <MetricCard label="Gross Yield" value={`${grossYield}%`} accent="#94a3b8" />
+            <MetricCard label="Gross Yield" value={grossYield === '—' ? '—' : `${grossYield}%`} accent="#94a3b8" />
             <MetricCard label="Price / SqFt" value={`$${Math.round(p.price / (p.sqft || 1))}`} accent="#94a3b8" />
           </View>
 
@@ -154,6 +204,14 @@ export default function IntelligenceScreen({ propertyId, onBack }: Props) {
             <View style={styles.financialRow}>
               <Text style={styles.financialLabel}>Operating Expenses</Text>
               <Text style={[styles.financialValue, { color: '#ef4444' }]}>−{formatCurrency(estimatedExpenses)}</Text>
+            </View>
+            <View style={styles.financialRow}>
+              <Text style={styles.financialLabel}>Net Operating Income</Text>
+              <Text style={styles.financialValue}>{formatCurrency(annualNoi)}</Text>
+            </View>
+            <View style={styles.financialRow}>
+              <Text style={styles.financialLabel}>Debt Service</Text>
+              <Text style={[styles.financialValue, { color: '#ef4444' }]}>−{formatCurrency(annualDebtService)}</Text>
             </View>
             <View style={[styles.financialRow, styles.financialTotal]}>
               <Text style={styles.financialTotalLabel}>Net Cash Flow</Text>
@@ -182,8 +240,13 @@ export default function IntelligenceScreen({ propertyId, onBack }: Props) {
             ))}
           </View>
         </View>
+          {onUnderwrite ? (
+            <TouchableOpacity style={styles.underwriteBtn} onPress={onUnderwrite} activeOpacity={0.85}>
+              <Text style={styles.underwriteBtnText}>Underwrite this deal</Text>
+            </TouchableOpacity>
+          ) : null}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -209,6 +272,15 @@ const styles = StyleSheet.create({
   watchBtnActive: { backgroundColor: 'rgba(201,168,76,0.15)', borderColor: '#C9A84C' },
   watchBtnText: { fontSize: 12, color: '#94a3b8', fontWeight: '600' },
   watchBtnTextActive: { color: '#C9A84C' },
+  underwriteBtn: {
+    backgroundColor: '#c9a84c',
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  underwriteBtnText: { color: '#0f172a', fontSize: 15, fontWeight: '800' },
   scroll: { flex: 1 },
   heroImage: { width: SCREEN_W, height: 220 },
   heroPlaceholder: { backgroundColor: '#1e293b' },

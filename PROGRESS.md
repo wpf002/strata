@@ -1,5 +1,55 @@
 # STRATA — Progress Log
 
+## Sprint 12 — August 2026 — Mobile build-out
+
+The mobile app was five screens against the web's fourteen, and the gap was in
+the wrong places: no way to underwrite anything, no watchlist, no markets, and
+no sign out at all — once you were in, deleting the app was the only way back.
+
+### New screens
+
+| Screen | Why |
+| --- | --- |
+| **Underwrite** | The core of the product and mobile had no equivalent. Steppers rather than sliders (exact, and hittable with a thumb), verdict pinned at the top, detail below. Seeds the property's state so the model applies that state's tax rate. |
+| **Watchlist** | The most obviously mobile feature there is — save a place while standing outside it. Hydrates each id independently so one slow lookup doesn't stall the list. |
+| **Market Pulse** | Regime, median, cap rate and inventory per market. Shows an error rather than substituting estimates when the feed is down. |
+| **Settings** | Profile, the API this build points at, and **sign out** — which did not exist anywhere in the app. |
+| **More** | Hub for the two above; five tabs is the practical ceiling on a phone. |
+
+### Bugs found while building
+
+- **Portfolio had never worked against the live API.** `getPortfolio` called
+  `.map()` on the response, but `GET /portfolio` returns a summary object, not
+  an array — "data.map is not a function" for every real user. Only the mock
+  path ever worked.
+- **The watch star was local state.** Tapping it lit the star, saved nothing,
+  and reset on the next visit. Wired to the real watchlist API with optimistic
+  update and rollback.
+- **Annual financials were nonsense.** Gross revenue was computed as
+  `(cashFlow + (price × capRate / 100) / 12) × 12` — a year of NOI added to a
+  year of cash flow — which reported **$4K** of annual rent on a $315k
+  listing, and a 1.3% gross yield. The rent estimate now comes through from the
+  API and revenue, NOI, opex and debt service are each derived properly.
+- **Everything sat under the status bar.** No screen with `headerShown: false`
+  had a top inset, so headers collided with the clock on every tab.
+- **Doubled headers** on the property screen — a native stack header stacked on
+  top of the screen's own.
+
+### Foundations
+
+`src/theme.ts` (tokens + formatters) and `src/components/UI.tsx` (Card, badges,
+metric rows, stat tiles, empty/error/loading states, buttons) replace the
+copy-pasted `#080f1a` literals and hand-rolled cards in every screen.
+`ErrorBoundary` wraps each screen so one crash doesn't blank the app — release
+builds have no red box to fall back on. Tab icons are drawn with plain Views
+instead of unicode glyphs (⌕ ◫ ✦) that rendered differently per platform.
+
+### Verification
+
+iOS and Android both build clean; walked the new tabs on the simulator against
+the live API. Web 183 vitest, backend 200 pytest, all typechecks clean.
+
+
 ## Sprint 11 — August 2026 — Ready for user testing
 
 Focused on what a tester actually hits: the first five minutes on a new
